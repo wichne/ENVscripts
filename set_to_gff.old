@@ -1,0 +1,87 @@
+#!/usr/bin/perl
+
+use strict;
+use DBI;
+use Getopt::Std;
+use Bio::SeqIO;
+use lib $ENV{SCRIPTS};
+use ENV;
+
+my %arg;
+&getopts('D:i:n:o:', \%arg);
+
+my $outfile = $arg{o};
+my $OUT;
+if ($outfile) {
+    open $OUT, ">$outfile" || die "Can't open $outfile for write:$!";
+} else {
+    $OUT = \*STDOUT;
+}
+
+my $db = $arg{'D'} or die "No db provided";
+my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
+my $dbh = DBI->connect("dbi:mysql:db=$db;host=$host", 'access', 'access');
+
+my $set_name = $arg{'n'};
+my $set_id = $arg{'i'} ? $arg{'i'} : ENV::set_name_to_id($dbh,$arg{'n'});
+my $outo = Bio::SeqIO->new(-fh => \*STDOUT,
+			   -format => 'fasta');
+print STDERR "Gathering information...\n";
+#get seq_accs
+my $sacc_q = "SELECT a.seq_id, seq_accession"
+    . " FROM sequence_accessions a, seq_set_link l"
+    . " WHERE l.set_id=$set_id"
+    . " AND a.seq_id=l.seq_id";
+my $sacc_a = $dbh->selectall_arrayref($sacc_q);
+my $sacc_r;
+foreach my $rec(@$sacc_a) {
+    push @{$sacc_r->{$rec->[0]}}, $rec->[1];
+}
+
+# get feature_ids
+print STDERR "Gathering features...\n";
+my $fid_q = "SELECT m.feature_id, m.seq_id, f.feat_type, m.feat_min, m.feat_max, m.strand, m.phase"
+    . " FROM sequence_features f, seq_feat_mappings m, seq_set_link l"
+    . " WHERE m.feature_id=f.feature_id"
+    . " AND l.set_id=$set_id"
+    . " AND m.seq_id=l.seq_id"
+    ;
+my $feat_r = $dbh->selectall_hashref($fid_q, 'feature_id');
+
+foreach my $fid (sort {
+    $feat_r->{$a}->{'seq_id'} <=> $feat_r->{$b}->{'seq_id'} ||
+	$feat_r->{$a}->{'feat_min'} <=> $feat_r->{$b}->{'feat_min'}
+		 } keys %$feat_r) {
+    # get annotation
+    my $ann_q = "SELECT qualifier, value, rank, source"
+	. " FROM feature_annotations a, INSDC.qualifier q"
+	. " WHERE feature_id=$fid"
+	. " AND q.id=a.data_type_id";
+    my $ann_a = $dbh->selectall_arrayref($ann_q);
+    my $ann_r;
+
+    # get accessions
+    my $acc_q = "SELECT accession"
+    . " FROM feature_accessions WHERE feature_id=$fid";
+    my $acc_a = $dbh->selectcol_arrayref($acc_q);
+
+    my $seq_id = $feat_r->{$fid}->{'seq_id'};
+    my $sacc = join("|", @{$sacc_r->{$seq_id}});
+    my $identifier = join("|", @{$acc_a});
+    my ($min,
+	$max,
+	$strand,
+	$phase) = ($feat_r->{$fid}->{'feat_min'},
+		   $feat_r->{$fid}->{'feat_max'},
+		   $feat_r->{$fid}->{'strand'},
+		   $feat_r->{$fid}->{'phase'});
+    $strand = $strand == 1 ? "+" : $strand==-1 ? "-" : ".";
+    my ($end5, $end3) = $strand == 1 ?
+	($min,$max) : ($max, $min);
+    my @desc = ("bin=\"$set_name\"", "id=\"".join("|",@$acc_a)."\"");
+    foreach my $x(@{$ann_a}) {
+	push @desc, "$x->[0]=\"$x->[1]\"";
+    }
+    print $OUT "$sacc PNNL $feat_r->{$fid}->{feat_type}"
+	. " $min $max . $strand $phase " . join(";",@desc) . "\n";
+}

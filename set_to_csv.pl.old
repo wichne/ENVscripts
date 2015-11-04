@@ -1,0 +1,147 @@
+#!/usr/bin/perl
+
+use strict;
+use lib $ENV{SCRIPTS};
+use ENV;
+use DBI;
+use Getopt::Std;
+use Bio::SeqIO;
+
+my $opt = {};
+&getopts('D:i:n:o:', $opt);
+my $db = $opt->{D};
+#my $setid = $opt->{i};
+#my $setname = $opt->{n};
+my $outfile = $opt->{o};
+
+my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
+my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'access');
+
+
+my $OUT;
+if ($outfile) {
+    open $OUT, ">$outfile" || die "Can't open $outfile for write:$!";
+} else {
+    $OUT = \*STDOUT;
+}
+
+#print $OUT "scaf_id	low	high	strand	PNNL_id	locus_tag	IMG_id	RAST_id	IMG_id	type	product	gene	ec	KO	CAZy	MEROPS	TC	TIGRfam	PFam	signalp	TMs	OMP domain\n";
+
+#my $setref = &get_seq_sets($dbh);
+#if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
+
+#my $seq_ids = &set_id_to_seq_ids($dbh, $setid);
+#foreach my $seqid (sort {$a<=>$b} @$seq_ids) {
+#    my $seqacc = join(":",@{&get_accession_by_seq_id($dbh, $seqid)});
+    my $feat_ev_aref = &get_feature_ids_for_this($dbh);
+foreach my $row (@$feat_ev_aref) {
+    my ($featid, $evacc) = @$row;
+    my $feat_ref = &get_features_by_feature_id($dbh, $featid);
+#    foreach my $featid ( sort {$a<=>$b} keys %$feat_ref) {
+#	my $locref = $feat_ref->{$featid}->{'location'}->{$seqid};
+#	my ($low, $high, $strand) = ($locref->{'feat_min'}, $locref->{'feat_max'}, $locref->{'strand'});
+#	$low = "<" . $low if ($locref->{'min_partial'});
+#	$high = $high . ">" if ($locref->{'max_partial'});
+    
+    my $PNNL = "\"" . join("\n", @{$feat_ref->{$featid}->{'accessions'}->{'PNNL'}}) . "\""
+	if ($feat_ref->{$featid}->{'accessions'}->{'PNNL'});
+    my $JGI = "\"" . join("\n", @{$feat_ref->{$featid}->{'accessions'}->{'JGI'}}) . "\""
+	if ($feat_ref->{$featid}->{'accessions'}->{'JGI'});
+    my $RAST = "\"" . join("\n", @{$feat_ref->{$featid}->{'accessions'}->{'RAST'}}) . "\""
+	if ($feat_ref->{$featid}->{'accessions'}->{'RAST'});
+    my $IMG = "\"" . join("\n", @{$feat_ref->{$featid}->{'accessions'}->{'IMG'}}) . "\""
+	if ($feat_ref->{$featid}->{'accessions'}->{'IMG'});
+    my $locus = "\"" . join("\n", @{$feat_ref->{$featid}->{'accessions'}->{'locus_tag'}}) . "\""
+	if ($feat_ref->{$featid}->{'accessions'}->{'locus_tag'});
+    
+#	my ($bestannrank) = sort {$a<=>$b} keys %{$feat_ref->{$featid}->{'annotation'}};
+#	my $annref = $feat_ref->{$featid}->{'annotation'}->{$bestannrank};
+#	my $product = join(":", @{$annref->{'product'}}) if ($annref->{'product'});
+#	my $gene = join(":", @{$annref->{'gene'}}) if ($annref->{'gene'});
+#	my $ec = join(":", @{$annref->{'EC_number'}}) if ($annref->{'EC_number'});
+    
+#	my $ev_ref = &get_evidence_for_feature($dbh, $featid);
+#	my $TIGR = "\"";
+#	my $PF = "\"";
+#	my ($KO, $SP, $TM, $OMP);
+#	my $CAZY = {};
+#	my $MEROPS = {};
+#	my $TC = {};
+#	foreach my $evrow(@$ev_ref) {
+    # 0 feat_id
+    # 1 feat_min
+    # 2 feat_max
+    # 3 program
+    # 4 ev_type
+    # 5 ev_accession
+    # 6 ev_min
+    # 7 ev_max
+    # 8 ev_length
+    # 9 score
+#	    if ($evrow->[4] eq "HMM") {
+#		if ($evrow->[5] =~ /^TIGR/) {
+#		    $TIGR .= "$evrow->[5]\n";
+#		    &get_CAZY_MEROPS_TC($dbh, $evrow->[5], $CAZY, $MEROPS, $TC);
+#		} elsif ($evrow->[5] =~ /^PF/) {
+#		    $evrow->[5] =~ s/\.\d+//;
+#		    &get_CAZY_MEROPS_TC($dbh, $evrow->[5], $CAZY, $MEROPS, $TC);
+#		    $PF .= "$evrow->[5]\n";
+#		} else {
+#}
+#	    } elsif ($evrow->[4] eq "KO") {
+#		&get_CAZY_MEROPS_TC($dbh, $evrow->[5], $CAZY, $MEROPS, $TC);
+#		$KO .= "$evrow->[5]:";
+#	    } elsif ($evrow->[4] eq "SP") {
+#		$SP .= "$evrow->[5]:";
+#	    } elsif ($evrow->[4] eq "TMH") {
+#		$TM++;
+#	    } elsif ($evrow->[4] eq "OMP") {
+#		$OMP .= "$evrow->[5]:";
+#	    }
+	    
+#	}
+#	$TIGR .= "\"";
+#	$PF .= "\"";
+
+	print $OUT join("\t", ($PNNL, $RAST, $IMG, $locus, $evacc));
+#	print $OUT join("\t", ($seqacc, $low, $high, $strand, $PNNL, $locus, $IMG, $RAST, $JGI,
+#			       $feat_ref->{$featid}->{'feat_type'}, $product, $gene, $ec, $KO,
+#			       join(" ", keys %$CAZY), join(" ", keys %$MEROPS), join(" ", keys %$TC),
+#			       $TIGR, $PF, $SP, $TM, $OMP));
+	print $OUT "\n";
+#    }
+}
+
+sub get_CAZY_MEROPS_TC {
+    my $dbh = shift;
+    my $ev_acc = shift;
+    my ($CAZY, $MEROPS, $TC) = @_;
+
+    my $CAZYq = "select cazy from egad.ev_cazy_link"
+	. " WHERE ev_acc = \"$ev_acc\"";
+    my $cazyr = $dbh->selectcol_arrayref($CAZYq);
+    foreach my $r(@$cazyr) { $CAZY->{$r} = 1 }
+    my $MEROPSq = "select concat(clan, ':', family, ':',subfamily) from egad.merops_ev_link"
+	. " WHERE ev_acc = \"$ev_acc\"";
+    my $meropsr = $dbh->selectcol_arrayref($MEROPSq);
+    foreach my $r(@$meropsr) { $MEROPS->{$r} = 1 }
+    my $TCq = "select tc from egad.ev_tc_link"
+	. " WHERE ev_acc = \"$ev_acc\"";
+    my $tcr = $dbh->selectcol_arrayref($TCq);
+    foreach my $r(@$tcr) { $TC->{$r} = 1 }
+}
+
+sub get_feature_ids_for_this {
+    my $dbh = shift;
+    my $query = "select e.feature_id, ev_accession"
+	. " FROM feature_evidence e, seq_feat_mappings m, seq_set_link l, sequence_sets s"
+	. " WHERE s.is_current=1"
+	." AND l.set_id=s.set_id"
+	. " and m.seq_id=l.seq_id"
+	. " AND e.feature_id=m.feature_id"
+	. " AND e.ev_type='HMM'"
+	. " AND ev_accession like 'PF%'"
+	. " GROUP BY feature_id, ev_accession"
+	. " ORDER BY feature_id";
+    return $dbh->selectall_arrayref($query);
+}
