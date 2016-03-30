@@ -6,10 +6,11 @@ use ENV;
 use Getopt::Std;
 use DBI;
 
+our $DEBUG = 0;
 my %arg;
 &getopts('i:D:p:h', \%arg);
 my $source = "RAST";
-my $rank = 9;
+my $rank = 10;
 
 if ($arg{'h'}) {
     print STDERR "load_RAST_info.pl -i [inputfile] -D [ENVdatabase] -p [dbpswd]
@@ -73,7 +74,7 @@ while (my $line = <$in>) {
     $DATA{$acc}->{'ec'} = \@EC if (@EC);
     $DATA{$acc}->{'FIGFAM'} = $figfam if ($figfam);
     $DATA{$acc}->{'protlen'} = length($protseq);
-    $DATA{$acc}->{'feature_id'} = &find_feature_id($dbh, $acc, $type, $ctg_id, $start, $stop, $strand, $protseq);
+    $DATA{$acc}->{'feature_id'} = &find_feature_id($dbh, $acc, $type, $ctg_id, $start, $stop, $strand, $protseq, $alias);
 }
 
 # Now load the info
@@ -108,20 +109,25 @@ sub find_feature_id {
     my $end3 = shift;
     my $strand = shift;
     my $protseq = shift;
+    my $alias = shift;
 
     my ($low, $high) = $end5 < $end3 ? ($end5, $end3) : ($end3, $end5);
 
     # Test for missing data
     my $fid = &fid_from_acc($dbh, $acc);
+    if ($fid) { return }
+    $alias =~ s/.*\|//; # alias might look like 'locus|[locus_tag]'
+    $fid = &fid_from_acc($dbh, $alias);
     $fid = &fid_from_loc($dbh, $acc, $type, $seq_acc, $low, $high, $strand) if (! $fid);
     $fid = &insert_seqFeature($dbh, $acc, $seq_acc, $type, $low, $high, $strand, $protseq) if (! $fid);
+    &insert_feature_accessions($dbh, $fid, $acc, "RAST", "fig");
     return $fid;
 }
 
 sub fid_from_acc {
     my $dbh = shift;
     my $acc = shift;
-    my $fidq = "SELECT feature_id FROM feature_accessions WHERE source='RAST' AND accession=?";
+    my $fidq = "SELECT feature_id FROM feature_accessions WHERE accession=?";
     my $fsth = $dbh->prepare($fidq);
     $fsth->execute($acc);
     my $rows = $fsth->fetchall_arrayref;
@@ -132,7 +138,7 @@ sub fid_from_acc {
 	}
 	warn "$acc maps to multiple feature_ids: $dups\nUsing " . $rows->[0]->[0] . "\n";
     }
-    print "$acc\t" . $rows->[0]->[0] . "\n" if (@$rows);
+    print "$acc\t" . $rows->[0]->[0] . "\n" if (@$rows && $DEBUG);
     return $rows->[0]->[0];
 }
 
@@ -163,7 +169,7 @@ sub fid_from_loc {
 	warn "$acc maps to multiple feature_ids: $dups\nUsing " . $rows->[0]->[0] . "\n";
     }
     &insert_feature_accession($dbh, $acc, $rows->[0]->[0]) if (@$rows);
-    print "$acc\t" . $rows->[0]->[0] . "\n" if (@$rows);
+    print "$acc\t" . $rows->[0]->[0] . "\n" if (@$rows && $DEBUG);
     return $rows->[0]->[0];
 }
 
@@ -199,7 +205,7 @@ sub insert_seqFeature {
 	return;
     }
     &insert_feature_accession($dbh, $acc, $feat_id);
-    print "$acc\t" . $feat_id . "\n";
+    print "$acc\t" . $feat_id . "\n" if ($DEBUG);
     return $feat_id;
 }
 

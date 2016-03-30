@@ -20,19 +20,15 @@ my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'access');
 
 my $OUT;
 if ($outfile) {
-    open($OUT, ">$outfile") || die "Can't open $outfile for write:$!";
+    open $OUT, ">$outfile" || die "Can't open $outfile for write:$!";
 } else {
     $OUT = \*STDOUT;
 }
 
-# Keep track of this for IGV
-my %GENE_IDX;
-
 #my $setref = &get_seq_sets($dbh);
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
 
-#my $protref = &get_seq_features_by_set_id($dbh, $setid, "CDS");
-my $protref = &get_seq_features_by_set_id($dbh, $setid, "CDS", "tRNA", "rRNA", "ncRNA");
+my $protref = &get_seq_features_by_set_id($dbh, $setid, "CDS");
 
 foreach my $fid (sort {
     $protref->{$a}->{'location'}->{'seq_id'} <=> $protref->{$b}->{'location'}->{'seq_id'} ||
@@ -57,7 +53,7 @@ foreach my $fid (sort {
     if (! defined $phase) { warn "No phase reported for CDS $fid: defaulting to phase=0\n";
 			    $phase = 0; }
     elsif ($phase !~ /^[012]$/) { warn "Invalid phase ('$phase') for CDS $fid: defaulting to phase=0\n";
-				  $phase = 0; }
+				$phase = 0; }
 
     # The description stuff
     my $ID = "$db|$fid";
@@ -70,12 +66,7 @@ foreach my $fid (sort {
     my @desc = ($ID,"bin=$setname",@alias);
     while (my ($qual,$vref) = each %{$protref->{$fid}->{'annotation'}}) {
 	my ($k) = sort {$a<=>$b} keys %$vref;
-	my $val = $vref->{$k}->[0]->{value};
-	if ($qual eq "gene") {
-	    if (defined $GENE_IDX{$val}) { $val .= "-" . ++$GENE_IDX{$val} }
-	    else { $GENE_IDX{$val} = 1 if ($val) }
-	}
-	push @desc, "$qual=$val";
+	push @desc, "$qual=$vref->{$k}->[0]->{value}";
     }
 
     print $OUT join("\t", $sacc, "PNNL", $protref->{$fid}->{feat_type},

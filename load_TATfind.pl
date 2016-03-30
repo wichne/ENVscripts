@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# New loader as of 1/2016
 
 use Getopt::Std;
 use DBI;
@@ -25,30 +26,30 @@ open my $in, $infile or die "Can't open $infile: $!\n";
 my $ev_d = "DELETE FROM feature_evidence"
     . " WHERE feature_id = ?"
     . " AND ev_type='SP'"
-    . " AND program='LipoP-1.0'";
+    . " AND program='TATfind'";
 my $dsth = $dbh->prepare($ev_d);
 
 my $ev_i = "INSERT INTO feature_evidence"
-    . " (feature_id, feat_min, feat_max, program, ev_type, ev_accession, score)"
-    . " VALUES(?, 1, ?, 'LipoP-1.0', 'SP', 'SpII', ?)";
+    . " (feature_id, feat_min, feat_max, program, ev_type, ev_accession)"
+    . " VALUES(?, ?, ?, 'TATfind1.4a', 'SP', 'TAT')";
 my $sth = $dbh->prepare($ev_i);
 
 while (my $line = <$in>) {
     next if ($line =~ /^\#/);
     chomp $line;
-    $line =~ s/^\s*//;
-    my ($acc,
-	$ev_type,
-	$score,
-	$margin,
-	$cleavage,
-	$plus2) = split/\s+/, $line;
-    my $fid;
+    my $short = 0;
+    if ($line =~ /ExpAA/) {
+	$short = 1;
+    }
+    my @f = split/\t/, $line;
+#    if (@f != 6) { die "Input file is not in TMHMM2.0 summary format\n"; }
     
+    my $acc = $f[0];
+    my $fid;
     if ($acc =~ /^\d+$/) {
 	$fid = $acc;
     } else {
-	$fid = get_feature_id_by_accession($acc);
+	$fid = get_feature_id_by_accession($dbh, $acc);
 	if (!$fid) {
 	    print "WARNING: Couldn't get a feature_id from accession '$acc'. Skipping.\n";
 	    next;
@@ -57,11 +58,21 @@ while (my $line = <$in>) {
 
     $dsth->execute($fid);
 
-     if ($ev_type eq "SpII"){
-	my $str = "$score;$margin;$cleavage;$plus2;";
-	$cleavage =~ /(\d+)/;
-	my $cpos = $1;
-	my @acc= split(/\|/, $acc);
-	$sth->execute($fid, $cpos, $str);
+    if ($short) {
+	my (undef, $len) = split/\=/, $f[1];
+	my (undef, $string) = split/\=/, $f[5];
+	
+	while ($string =~ /(\d+)\-(\d+)/g) {
+	    $sth->execute($fid, $1, $2);
+	}
+    } else {
+	# this is for long form output.
+	if ($f[2] eq "TMhelix") {
+	    #my @acc = split(/\|/, $acc);
+	    my $ev_acc = $f[0];
+	    my $min = $f[3];
+	    my $max = $f[4];
+	    $sth->execute($fid, $min, $min, $ev_acc);
+	}
     }
 }

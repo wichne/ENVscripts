@@ -25,13 +25,7 @@ if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
 my $featref = &get_seq_features_by_set_id($dbh, $setid, "CDS");
 
 foreach my $fid (keys %$featref) {
-    my $acc; # = join "|", values %{$featref->{$fid}->{'accessions'}};
-    if (defined $featref->{$fid}->{'accessions'}->{'locus_tag'}) {
-	$acc = $featref->{$fid}->{'accessions'}->{'locus_tag'};
-	$acc =~ s/.*\|//;
-    } else {
-	$acc = "$fid";
-    }
+    my $acc = join "|", values %{$featref->{$fid}->{'accessions'}};
     my $dir = $featref->{$fid}->{'location'}->{'strand'} > 0 ? "+" : "-";
     print $outfh join("\t", ($acc,
 			     $featref->{$fid}->{'location'}->{'feat_min'},

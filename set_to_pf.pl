@@ -53,27 +53,33 @@ foreach my $seq_id (sort {$a<=>$b} keys %$seqref) {
     $elem_txt .= "//\n";
 
     my $featids = &get_feature_ids_by_seq_id($dbh, $seq_id);
-    my $protref = &get_protein_by_feature_id($dbh, @$featids);
+    my $protref = &get_features_by_feature_id($dbh, @$featids);
     foreach my $fid (sort {$a<=>$b} keys %$protref) {
-	my $acc;
-	foreach my $a(@{$protref->{$fid}->{'accessions'}}) {
-	    if ($a =~ /IMG/) { $acc = $a }
-	    else { $acc = $a if (! $acc) }
-	}
+	# make the identifier the locus_tag
+	my $acc = $protref->{$fid}->{'accessions'}->{'locus_tag'}->[0];
+#	foreach my $src(keys %{$protref->{$fid}->{'accessions'}}) {
+#	foreach my $a(@{$protref->{$fid}->{'accessions'}}) {
+#	    if ($a =~ /IMG/) { $acc = $a }
+#	    else { $acc = $a if (! $acc) }
+#	}
+	if (! $acc) { warn "No locus_tag for $fid : $acc!!!\n";}
+
 	if (length($protref->{$fid}->{'product'}) == 0 ||
 	    !defined($protref->{$fid}->{'product'})) {
 	    warn "No product string for feature $fid ($acc). Skipping...";
 	    next;
 	}
 	my ($product, $gene_sym, $ec);
-	while (my ($k,$v) = each %{$protref->{$fid}->{'annotation'}}) {
+	my ($rank) = sort {$a <=> $b} keys %{$protref->{$fid}->{'annotation'}};
+	my ($src) = sort {$a cmp $b} keys %{$protref->{$fid}->{'annotation'}->{$rank}};
+	while (my ($k,$v) = each %{$protref->{$fid}->{'annotation'}->{$rank}->{$src}}) {
 	    if ($k eq "product") { $product = $v->[0] . " " . $product; }
 	    if ($k eq "gene_sym") { $gene_sym = $v->[0] };
-	    if ($k eq "EC") { $ec = $v }
+	    if ($k eq "EC") { push @$ec, @$v; }
 	}
 
 	
-	my $loc = $protref->{$fid}->{'location'}->{$seq_id};
+	my $loc = $protref->{$fid}->{'location'}->{$setid};
 	my ($end5, $end3) = $loc->{'strand'} == 1 
 	    ? ($loc->{'feat_min'}, $loc->{'feat_max'}) 
 	    : ($loc->{'feat_max'}, $loc->{'feat_min'});

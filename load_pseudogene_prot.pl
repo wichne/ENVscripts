@@ -21,12 +21,13 @@ my $pseudo_q = "update seq_feat_mappings m, seq_set_link l, sequence_sets s"
 my $sth2 = $dbh->prepare($pseudo_q);
 
 while (my $rec = $fileo->next_seq) {
-    my $acc = $rec->display_id;
+    my $acc = $rec->display_name;
     my $fid = &get_feature_id_by_accession($dbh, $rec->display_id);
+    if (! $fid) { warn "No feature_id for $acc\n"; next; }
     my $pep = $rec->seq;
 
     $sth1->execute($pep, $fid);
-    $sth2->execute($fid);
+#    $sth2->execute($fid);
 }
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/perl
-# Edited by JMo 12/08/2014. Updated and added subroutines from ENV.pm
+#Edited by JMo 11/07/2015. Delete old KO features before update
 #Script takes 2-column output from Koala ko assignment of proteins from genomes 
-#and inserts into the evidence_table. Trimmed 'fig|' off to work, in future add this
+#and inserts into the evidence_table.
 
 
 use Getopt::Std;
@@ -30,20 +30,20 @@ while (my $line = <$in>) {
     chomp $line;
     my ($acc, $ko) = split/\s+/, $line;
     next if (! $ko);
-    #my @acc = split/\|/, $acc;
     my @acc = $acc;
     my $fid_ref = &get_feature_id_by_accession($dbh, $acc);
     my $fid = $fid_ref->{$acc}->{'feature_id'};
 
     my $fref = &get_protein_by_feature_id($dbh, $fid);
+    my $ev_d = "DELETE FROM feature_evidence WHERE feature_id=$fid AND ev_type='KO'";
+    my $dsth= $dbh->do($ev_d);
     my $ev_i = "INSERT INTO feature_evidence (feature_id, ev_accession, feat_min, feat_max, ev_type, program)"
 	. " VALUES ($fid, \"$ko\", 1, " . length($fref->{$fid}->{'product'}) . ", \"KO\", \"KOALA\")\n";
 
-    $dbh->do($ev_i);
+    my $sth = $dbh->do($ev_i);
 }
 
-
-#######More magic##########
+##subs##
 sub get_feature_id_by_accession {
     my $dbh = shift;
     my @accession = @_;
@@ -52,7 +52,7 @@ sub get_feature_id_by_accession {
         . " WHERE accession in (\"" . join("\",\"", @accession) . "\")";
 
     my $r = $dbh->selectall_hashref($f_id_q, 'accession'); 
-	{
+    {
         return $r;
     }
 }

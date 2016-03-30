@@ -1,7 +1,6 @@
 #!/usr/bin/perl
 
-# Edited by JMo on 12/09/2014 to accomodate the COG data grepped from JGI_info file.
-# Edited by JMo on 11/01/2015, what input to use?
+# Edited by JMo on 12/09/2014 to accomodate the COG data grepped from JGI_info file (*.info.xls)
 
 use Getopt::Std;
 use DBI;
@@ -34,15 +33,14 @@ while (my $line = <$in>) {
    # my $fid = &get_feature_id_by_accession($dbh, $acc[0]);
    # my $len = &get_feature_product_length($dbh, $fid);
 
-#testing this, need to check database
-    my ($jgi, $acc, $genelen, $pid, $qs, $qe, $ss, $se, $evalue, $bit, $COG_acc, $desc, $coglen) = split/\t/, $line;
+    my ($jgi, $acc, $COG_acc, $desc, $evalue) = split/\t/, $line;
     my $fid = &get_feature_id_by_accession($dbh, $acc);
     if (!$fid) {die "Why no fid for $acc?";}
     my $len = &get_feature_product_length($dbh, $fid);
     my $ev_i = "INSERT INTO feature_evidence (feature_id, feat_min, feat_max, program, ev_type, ev_accession, ev_min, ev_max, ev_length, score)"
-	. " VALUES (?, ?, ?, 'IMG_pipeline', 'COG', ?, ?, ?, ?, ?)";
+	. " VALUES (?, '1', ?, 'IMG_pipeline', 'COG', ?, '0', '0', '0', ?)";
     my $evstg = $dbh->prepare($ev_i);
-    $evstg->execute($fid, $qs, $qe, $COG_acc, $qs, $qe, $evale);
+    $evstg->execute($fid, $len, $COG_acc, $evalue);
 }
 
 sub get_feature_product_length {

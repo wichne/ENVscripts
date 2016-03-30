@@ -6,7 +6,6 @@ use DBI;
 use Getopt::Std;
 use Bio::SeqIO;
 use strict;
-use warnings;
 
 our($opt_D, $opt_i, $opt_n, $opt_o);
 
@@ -51,6 +50,7 @@ foreach my $fid (keys %$protref) {
     $SUBROLE{$rret->{[keys %$rret]->[0]}->{'subrole'}}++;
     if (defined $protref->{$fid}->{'accessions'}) {
 	my $acc = join "|", @{$protref->{$fid}->{'accessions'}};
+#	my $acc = {$protref->{$fid}->{'accessions'}};
 	print join("\t",($acc,[keys %$rret]->[0],$MR->{$rret->{[keys %$rret]->[0]}->{'mainrole'}}->{'name'},$SR->{$rret->{[keys %$rret]->[0]}->{'subrole'}}->{'name'})) . "\n";
     }
 }

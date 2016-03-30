@@ -1,36 +1,54 @@
 #!/usr/bin/perl
 #edit JMo 10022015, add input options
 
+# The purpose of this script is to dump out all accessions and evidence for the CDSs in a sequence set
+
 use strict;
 use lib "/share/scripts"; #$ENV{SCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
-use CGI qw/:standard/;
 use Bio::SeqIO;
 
-#my $db = &param('db');
-#my $setid = &param('set_id');
-#my $setname = &param('seq_set_name');
+### This is for the web version
+# use CGI qw/:standard/;
+# my $db = &param('db');
+# my $setid = &param('set_id');
+# my $setname = &param('seq_set_name');
+###
+
+### This is for the command line version
 my $opt = {};
 &getopts('D:i:n:o:', $opt);
 my $db = $opt->{D};
 my $setid = $opt->{i};
 my $setname = $opt->{n};
 my $outfile = $opt->{o};
+###
 
 my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
-my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'access');
 
+my $dbh = &connect({'D' => $db,
+		    'u' => 'access',
+		    'p' => 'access'});
+
+# get the set_id from the set_name
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
 
+# get the seq_ids for all molecules in the set
 my $seq_ids = &set_id_to_seq_ids($dbh, $setid);
 
 my $output;
+# step through each molecule
 foreach my $seqid (sort {$a<=>$b} @$seq_ids) {
+    # get the molecule accession(s)
     my $contig = "\"" . join("\n",@{&get_accession_by_seq_id($dbh, $seqid)}) . "\"";
+
+    # get the features resident on the molecule
     my $feat_id_aref = &get_feature_ids_by_seq_id($dbh, $seqid);
     my $feat_ref = &get_features_by_feature_id($dbh, @$feat_id_aref);
+
+    # step through the features in positional order
     foreach my $featid ( sort { $feat_ref->{$a}->{'location'}->{$seqid}->{'feat_min'} <=>
 				    $feat_ref->{$b}->{'location'}->{$seqid}->{'feat_min'} } keys %$feat_ref) {
 
@@ -43,7 +61,7 @@ foreach my $seqid (sort {$a<=>$b} @$seq_ids) {
 	$strand = $strand < 0 ? "-" : $strand > 0 ? "+" : "";
 	my $aa;
 	# the length in aa will be either the actual length of the product field, or,
-	# if the product field is empty
+	# if the product field is empty, the difference in the coords.
 	if ($feat_ref->{$featid}->{'feat_type'} eq "CDS") {
 	    if ($feat_ref->{$featid}->{'product'} =~ /\w+/) {
 		$aa = length($feat_ref->{$featid}->{'product'});
@@ -78,7 +96,7 @@ foreach my $seqid (sort {$a<=>$b} @$seq_ids) {
 	my $RAST_product;
 	my $IMG_product;
 
-	$RAST_ann = $feat_ref->{$featid}->{'annotation'}->{9}->{'RAST'} if (defined $feat_ref->{$featid}->{'annotation'}->{9}->{'RAST'});
+	$RAST_ann = $feat_ref->{$featid}->{'annotation'}->{10}->{'RAST'} if (defined $feat_ref->{$featid}->{'annotation'}->{9}->{'RAST'});
 	if (defined $RAST_ann->{'product'}) {
 	    $RAST_product = join("\n", @{$RAST_ann->{'product'}}); }
 	if (defined $RAST_ann->{'EC_number'}) { 

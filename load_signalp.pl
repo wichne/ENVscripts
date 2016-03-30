@@ -57,7 +57,7 @@ while (my $line = <$in>) {
     if ($acc =~ /^\d+$/) {
 	$fid = $acc;
     } else {
-	$fid = get_feature_id_by_accession($dbh,$acc);
+	$fid = get_feature_id_by_accession($acc);
 	if (!$fid) {
 	    print "WARNING: Couldn't get a feature_id from accession '$acc'. Skipping.\n";
 	    next;

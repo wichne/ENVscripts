@@ -163,6 +163,7 @@ foreach my $fid (sort {$SET{$a} <=> $SET{$b} || $a<=>$b } keys %DATA) {
 	    print $set_count "$samp\t";
 	    my $rel_count = 0;
 	    if ($TOT{$SET{$fid}}->{$ex}->{$samp} > 0) {
+		# percentage (count/total count for sample * 100)
 		$rel_count = sprintf "%.2f", ($DATA{$fid}->{$ex}->{$samp}*100/$TOT{$SET{$fid}}->{$ex}->{$samp});
 	    }
 	    my $RPKM;
@@ -173,6 +174,7 @@ foreach my $fid (sort {$SET{$a} <=> $SET{$b} || $a<=>$b } keys %DATA) {
 		$TOT{$SET{$fid}}->{$ex}->{$samp} == 0) {
 		$RPKM = 0;
 	    } else {
+		# count/geneLength(in kb)/sampleReads(in millions)
 		$RPKM = $DATA{$fid}->{$ex}->{$samp}/($LENGTH{$fid}/1000)/($TOT{$SET{$fid}}->{$ex}->{$samp}/1000000);
 	    }
 	    print $set_count $TOT{$SET{$fid}}->{$ex}->{$samp} . "\n";

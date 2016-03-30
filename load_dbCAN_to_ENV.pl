@@ -1,5 +1,6 @@
 #!/usr/bin/perl
-#edited by JMo July 16 2014
+#edited by JMo January 12 2016 to update for format of new dbCAN output file after dbCAN parsing
+#see readme file in scripts/db/hmm/dbCAN for specifics
 use lib $ENV{SCRIPTS};
 use ENV;
 use strict;
