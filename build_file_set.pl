@@ -55,7 +55,7 @@ foreach my $name (@set_names) {
 
     
     $contig_cmd = "$ENV{SCRIPTS}/set_to_fasta.pl -D $db -n $name -o $path/$name.fasta";
-    $pep_cmd    = "$ENV{SCRIPTS}/set_to_pep.pl -D $db -n $name -o $path/$name.pep -A locus_tag -a";
+    $pep_cmd    = "$ENV{SCRIPTS}/set_to_pep.pl -D $db -n $name -o $path/$name.pep";
     $seq_cmd    = "$ENV{SCRIPTS}/set_to_seq.pl -D $db -n $name -o $path/$name.seq -A locus_tag -a";
     $gff_cmd    = "$ENV{SCRIPTS}/set_to_gff.pl -D $db -n $name -o $path/$name.gff";
     $gbf_cmd    = "$ENV{SCRIPTS}/set_to_gbf.pl -D $db -n $name -o $path/$name.gbf";

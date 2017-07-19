@@ -25,6 +25,7 @@ if (! -r $infile) { die "$infile is not readable: $!\n";}
 open my $in, $infile or die "Can't open $infile: $!\n";
 
 while (my $line = <$in>) {
+    if ($line =~ /^gene_oid/) {next}
     chomp $line;
 #Commented out from a previous format which is unknown
    #my ($acc, $len, $lo, $hi, $score, $cog) = split/\,/, $line;

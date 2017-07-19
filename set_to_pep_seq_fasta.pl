@@ -10,7 +10,7 @@ use Bio::SeqIO;
 use Data::Dumper qw(Dumper);
 
 my %opt;
-&getopts('D:i:n:o:A:ah', \%opt);
+&getopts('D:i:n:o:sA:ah', \%opt);
 
 if ($opt{h}) {
     die "USAGE\nset_to_pep.pl -D db [ -i set_id -n set_name ] [-o output_file -A source_for_accession -a (include annotation) ]\n";
@@ -21,23 +21,21 @@ my $dbh = DBI->connect("dbi:mysql:host=$host;db=$opt{D}", 'access', 'access');
 
 my $setid = $opt{i};
 my $setname = $opt{n};
-my $outfh;
-my $pseudo_file;
-if ($opt{o}) {
-    $outfh = Bio::SeqIO->new(-file => ">$opt{o}",
-			     -format => 'fasta');
-    $pseudo_file = $opt{o} . ".pseudo";
-} else {
-    $outfh = Bio::SeqIO->new(-fh => \*STDOUT,
-			     -format => 'fasta');
-    $pseudo_file = $$ . ".pseudo";
-}
+my $db = $opt{D};
+
+if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
+if ($setid && ! $setname) { $setname = &set_id_to_set_name($dbh, $setid) }
+my $pep_file = sprintf "%s.%s.pep", ($db, $setname);
+my $seq_file = sprintf "%s.%s.seq", ($db, $setname);
+my $pseudo_file = sprintf "%s.%s.pseudo", ($db, $setname);
+my $pepfh = Bio::SeqIO->new(-file => ">$pep_file",
+			 -format => 'fasta');
+my $seqfh = Bio::SeqIO->new(-file => ">$seq_file",
+			 -format => 'fasta');
 open (my $PSEUDO, ">$pseudo_file");
 
-#my $setref = &get_seq_sets($dbh);
-if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
 
-my $protref = &get_seq_features_by_set_id($dbh, $setid, "CDS");
+my $protref = &get_seq_features_by_set_id($dbh, $setid);
 my $seqids = &set_id_to_seq_ids($dbh, $setid);
 my $setdesc = &get_set_desc($dbh,$setid);
 our $SEQ = &get_sequence_by_seq_id($dbh, @$seqids);
@@ -62,38 +60,22 @@ foreach my $fid (sort {
 	$acc = "$db|$fid|$locus";
     }
 
+    ###  Get the gene sequence  ###
+    my ($seq_id, $min, $max, $strand,
+	$min_partial, $max_partial, $phase) = ($protref->{$fid}->{'location'}->{'seq_id'},
+					       $protref->{$fid}->{'location'}->{'feat_min'},
+					       $protref->{$fid}->{'location'}->{'feat_max'},
+					       $protref->{$fid}->{'location'}->{'strand'},
+					       $protref->{$fid}->{'location'}->{'min_partial'},
+					       $protref->{$fid}->{'location'}->{'max_partial'},
+					       $protref->{$fid}->{'location'}->{'phase'});
+    if (!($min && $max) || ($min >= $max)) { warn "Why $min/$max for $fid, $acc?\n";}
+    my $seq = &get_subseq($seq_id, $min, $max, $strand);
     my $gene_length = $protref->{$fid}->{'location'}->{'feat_max'} - $protref->{$fid}->{'location'}->{'feat_min'} + 1;
-    my $calc_prot_length = $gene_length/3 - 1; # gene length should include stop codon but protein should not
-    my $prot_length = length($protref->{$fid}->{'product'});
-    if (($protref->{$fid}->{'pseudo'} == 0 &&
-	 abs($prot_length - $calc_prot_length) > 0) ||
-	($protref->{$fid}->{'pseudo'} > 0 &&
-	abs($prot_length - $calc_prot_length) > 2)) {
-	warn "MISMATCHED TRANSLATION LENGTH: $fid $acc gene_length: $gene_length, calc_prot_length: $calc_prot_length, prot_length: $prot_length\n";
-    }
-    if (length($protref->{$fid}->{'product'}) == 0 ||
-	!defined($protref->{$fid}->{'product'})) {# ||
-#	$protref->{$fid}->{'product'} =~ /\*./)) {
-#	warn "No product string for feature $fid ($acc).";
-	my ($seq_id, $min, $max, $strand,
-	    $min_partial, $max_partial, $phase) = ($protref->{$fid}->{'location'}->{'seq_id'},
-						   $protref->{$fid}->{'location'}->{'feat_min'},
-						   $protref->{$fid}->{'location'}->{'feat_max'},
-						   $protref->{$fid}->{'location'}->{'strand'},
-						   $protref->{$fid}->{'location'}->{'min_partial'},
-						   $protref->{$fid}->{'location'}->{'max_partial'},
-						   $protref->{$fid}->{'location'}->{'phase'});
-	if (!($min && $max) || ($min >= $max)) { warn "Why $min/$max for $fid, $acc?\n";}
-	my $seq = &get_subseq($seq_id, $min, $max, $strand);
-	my $seqo = Bio::Seq->new(-display_id => $acc,
-				 -desc => $desc,
-				 -seq => $seq);
-	my $complete = $min_partial || $max_partial ? 0 : 1; 
-	my $protobj = $seqo->translate(-complete => $complete,
-				       -frame    => $phase,
-				       -codontable_id => 11);
-	$protref->{$fid}->{'product'} = $protobj->seq;
-    }
+    my $gene_length2 = length($seq);
+    if ($gene_length != $gene_length2) { die "Do math right!! Calculated length is not equal to actual length for $fid\n" }
+
+    ### Set up the description  ###
     my $desc = "[$setdesc]";
     if ($opt{a}) {
 	while (my ($qual,$vref) = each %{$protref->{$fid}->{'annotation'}}) {
@@ -104,14 +86,6 @@ foreach my $fid (sort {
 	    $desc .= " pseudogene=" . $PSEUDOKEY{$protref->{$fid}->{location}->{pseudo}} . ";";
 	}
     }
-    if ($protref->{$fid}->{'product'} =~ /\*./) {
-	warn "INTERNAL STOP: $fid $acc $protref->{$fid}->{pseudo}\n";
-	print $PSEUDO "$fid\t$seq_id\t$min\t$max\n";
-#	next;
-    }
-    if ($protref->{$fid}->{'product'} =~ /\*$/) {
-	warn "TRIM TERMINAL STOP: $fid $acc\n";
-    }
     if ($protref->{$fid}->{pseudo}) {
 	$desc .= " PSEUDO";
     }
@@ -119,12 +93,46 @@ foreach my $fid (sort {
 	$protref->{$fid}->{'location'}->{'max_partial'}) {
 	$desc .= " PARTIAL";
     }
-
-    $protref->{$fid}->{'product'} =~ s/\s//g;
     my $seqo = Bio::Seq->new(-display_id => $acc,
 			     -desc => $desc,
-			     -seq => $protref->{$fid}->{'product'});
-    $outfh->write_seq($seqo);
+			     -seq => $seq);
+
+    ###  Get the protein sequence  ###
+    if ($protref->{$fid}->{'feat_type'} eq "CDS") {
+	my $calc_prot_length = $gene_length/3 - 1; # gene length should include stop codon but protein should not
+	my $prot_length = length($protref->{$fid}->{'product'});
+	if (($protref->{$fid}->{'pseudo'} == 0 &&
+	     abs($prot_length - $calc_prot_length) > 0) ||
+	    ($protref->{$fid}->{'pseudo'} > 0 &&
+	     abs($prot_length - $calc_prot_length) > 2)) {
+	    warn "MISMATCHED TRANSLATION LENGTH: $fid $acc gene_length: $gene_length, calc_prot_length: $calc_prot_length, prot_length: $prot_length\n";
+	}
+	
+	if (length($protref->{$fid}->{'product'}) == 0 ||
+	    !defined($protref->{$fid}->{'product'})) {# ||
+	    my $complete = $min_partial || $max_partial ? 0 : 1; 
+	    my $protobj = $seqo->translate(-complete => $complete,
+					   -frame    => $phase,
+					   -codontable_id => 11);
+	    $protref->{$fid}->{'product'} = $protobj->seq;
+	}
+	if ($protref->{$fid}->{'product'} =~ /\*./) {
+	    warn "INTERNAL STOP: $fid $acc $protref->{$fid}->{pseudo}\n";
+	    print $PSEUDO "$fid\t$seq_id\t$min\t$max\n";
+#	next;
+	}
+	if ($protref->{$fid}->{'product'} =~ /\*$/) {
+	    warn "TRIM TERMINAL STOP: $fid $acc\n";
+	}
+	
+	###  Print out sequences  ###
+	$protref->{$fid}->{'product'} =~ s/\s//g;
+	my $pepo = Bio::Seq->new(-display_id => $acc,
+				 -desc => $desc,
+				 -seq => $protref->{$fid}->{'product'});
+	$pepfh->write_seq($pepo);
+    }
+    $seqfh->write_seq($seqo);
 }
 
 sub get_set_desc {

@@ -21,7 +21,7 @@ if ($arg{'h'}) {
 
 my $dbh = DBI->connect("dbi:mysql:host=$host;db=$DB", $USER, $PSWD);
 
-my $infile = $arg{'i'} or die "Need to provide input file with -i\n";
+my $infile = $arg{'i'} or die "Need to provide domtblout file with -i\n";
 
 open (my $IN, $infile);
 
@@ -70,7 +70,7 @@ while (my $line = <$IN>) {
 
     my $tacc;
     foreach my $x (@acc) {
-	if ($x eq "gnl" || $x eq "fig" || $x eq "gp" || $x eq "hotlake_bins") { next }
+	if ($x eq "gnl" || $x eq "fig" || $x eq "gp" || $x eq $DB) { next }
 	else { $tacc = $x; last; }
     }
 

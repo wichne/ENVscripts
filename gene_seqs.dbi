@@ -1,0 +1,105 @@
+#!/usr/bin/perl
+
+use strict;
+use DBI;
+use Getopt::Std;
+use Bio::SeqIO;
+
+my %arg;
+&getopts('D:i:n:o:t:', \%arg);
+
+my $db = $arg{'D'} or die "No db provided";
+my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
+my $dbh = DBI->connect("dbi:mysql:db=$db;host=$host", 'access', 'access');
+
+my $type = $arg{'t'};
+
+my $outo = $arg{'o'} ? Bio::SeqIO->new(-file => ">$arg{o}", -format => 'fasta')
+    : Bio::SeqIO->new(-fh => \*STDOUT, -format => 'fasta');
+print STDERR "Gathering information...\n";
+# get sequences
+print STDERR "Gathering sequences...\n";
+my $seq_q = "SELECT s.seq_id, sequence, set_id"
+    . " FROM sequences s, seq_set_link l"
+    . " WHERE s.seq_id=l.seq_id";
+
+
+my $seq_a = $dbh->selectall_arrayref($seq_q);
+my $seq_r;
+foreach my $s (@$seq_a) {
+    my $obj = Bio::Seq->new(-display_id => $s->[0],
+			    -seq => $s->[1]);
+    $seq_r->{$s->[0]}->{seqobj} = $obj;
+    $seq_r->{$s->[0]}->{set_id} = $s->[2];
+}
+$seq_a = undef;
+
+# get sets
+print STDERR "Gathering sets/bins information...\n";
+my $set_q = "SELECT set_id, name"
+    . " FROM sequence_sets";
+my $set_r = $dbh->selectall_hashref($set_q, 'set_id');
+
+# get feature_ids
+print STDERR "Gathering features...\n";
+my $fid_q = "SELECT m.feature_id, m.seq_id, m.feat_min, m.feat_max, m.strand"
+    . " FROM sequence_features f, seq_feat_mappings m"
+    . " WHERE m.feature_id=f.feature_id";
+if ($type) {
+    $fid_q .= " AND f.feat_type=\'$type\'"; }
+
+my $feat_r = $dbh->selectall_hashref($fid_q, 'feature_id');
+
+# get annotation
+print STDERR "Gathering annotation information...\n";
+my $ann_q = "SELECT feature_id, qualifier, value"
+    . " FROM feature_annotations a, INSDC.qualifier q"
+    . " WHERE a.data_type_id=q.id";
+my $ann_a = $dbh->selectall_arrayref($ann_q);
+my $ann_r;
+foreach my $ar(@$ann_a) {
+    $ann_r->{$ar->[0]}->{$ar->[1]} = $ar->[2];
+}
+$ann_a = undef;
+
+# get accessions
+print STDERR "Gathering accessions...\n";
+my $acc_q = "SELECT feature_id, accession"
+    . " FrOM feature_accessions";
+my $acc_a = $dbh->selectall_arrayref($acc_q);
+my $acc_r;
+foreach my $fa(@$acc_a) {
+    push @{$acc_r->{$fa->[0]}}, $fa->[1];
+}
+$acc_a = undef;
+
+print STDERR "Writing to STDOUT...\n";
+
+my $n = scalar keys %$feat_r;
+my $count;
+foreach my $fid(keys %$feat_r) {
+    if ((++$count/$n) % ($n/100) == 0) { print STDERR ".";}
+    my $seq_id = $feat_r->{$fid}->{'seq_id'};
+    my $set_id = $seq_r->{$seq_id}->{'set_id'};
+    my $identifier = join("|", @{$acc_r->{$fid}});
+    my ($min, $max, $strand) = ($feat_r->{$fid}->{'feat_min'},
+				$feat_r->{$fid}->{'feat_max'},
+				$feat_r->{$fid}->{'strand'});
+    my ($end5, $end3) = $strand == 1 ?
+	($min,$max) : ($max, $min);
+    my $scafo = $seq_r->{$seq_id}->{'seqobj'};
+    my $seq = $scafo->subseq($min, $max);
+    my $seqo = Bio::Seq->new(-display_id=>$identifier,
+			     -seq=>$seq);
+    if ($strand==-1) {
+	my $tseqo = $seqo->revcom();
+	$seqo = $tseqo;
+    }
+    my $desc = "bin=" . $set_r->{$set_id}->{'name'};
+    foreach my $key (keys %{$ann_r->{$fid}}) {
+	$desc .= " $key=\"$ann_r->{$fid}->{$key}\"";
+    }
+    $seqo->desc($desc);
+    $outo->write_seq($seqo);
+}
+print STDERR "\n";

@@ -2,7 +2,7 @@
 
 use Getopt::Std;
 use strict;
-use lib "/share/scripts/";
+use lib $ENV{ENVLIB};
 use ENV;
 
 my %arg;

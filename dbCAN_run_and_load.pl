@@ -3,6 +3,8 @@
 #09/16/2014, Jennifer Mobberley (mobberley.jennifer@pnnl.gov)
 #This script will load the best-hit dbCAN hmm generated from local annotation scripts (see README file at csbl.bmb.uga.edu/dbCAN/download). An additional step to append dbCAN hmm model length was carried out using the /home/mobb021/hmm/dbCAN/dbCAN_hmm_prep.sh
 #02/20/2015 WCN adapted from load_dbCan.pl This will now take a set name as an argument, build a fresh pep file, run the hmmscan (actually hmmsearch) and then load the database with the data (unless you ask it not to)
+#08/21/2016 JMo updated dbCAN_hmm_file path and reworked mysql excute to load into feature_evidence based on feature_id which is contained in the sequence headers of the peptide files
+
 
 use Getopt::Std;
 use DBI;
@@ -10,8 +12,8 @@ use strict;
 use lib $ENV{SCRIPTS};
 use ENV;
 
-our $dbCAN_hmm_file = "/share/scripts/db/hmms/dbCAN.hmm";
-our $DEBUG = 0;
+our $dbCAN_hmm_file = "/scripts/db/hmms/dbCAN/dbCAN-fam-HMMs.v5.txt";
+our $DEBUG = 1;
 
 my %arg;
 &getopts('D:u:p:i:n:', \%arg);
@@ -50,29 +52,30 @@ if (! $infile) {
     } else { die "No input file provided with -i or -n\n";}
 } else {
     if (! -r $infile) { die "$infile is not readable: $!\n";}
-    open my $in, $infile or die "Can't open $infile: $!\n";
-    while (my $line = <$in>) {
-	chomp $line;
-	my @f = split/\s+/, $line;
-	if (@f != 9) { die "Input file $infile is not in dbcan summary format: ". @f . "\n"; }
-	my $acc = shift @f;
-	push @{$dbcan_data->{$acc}}, \@f;
-    }
+    $dbcan_data = &parse_hmmsearch_output($infile);
+    # open my $in, $infile or die "Can't open $infile: $!\n";
+    # while (my $line = <$in>) {
+    # 	chomp $line;
+    # 	my @f = split/\s+/, $line;
+    # 	if (@f != 9) { die "Input file $infile is not in dbcan summary format: ". @f . "\n"; }
+    # 	my $acc = shift @f;
+    # 	push @{$dbcan_data->{$acc}}, \@f;
+    # }
 }
 
 my $ev_i = "INSERT INTO feature_evidence"
     . " (feature_id, feat_min, feat_max, program, ev_type, ev_accession, ev_min, ev_max, ev_length,score)"
     . " SELECT feature_id , ?, ?, 'dbCAN', 'CAZy', ?, ?, ?, ?, ?"
-    . " FROM feature_accessions WHERE accession=?";
+    . " FROM feature_evidence WHERE feature_id=?";
+
 my $sth = $dbh->prepare($ev_i);
 foreach my $x (keys %$dbcan_data) {
     my @acc = split/\|/, $x;
     my $acc = @acc > 1 ? $acc[1] : $acc[0];
     if (! $acc) { die "Why no accession from $x ?\n"; }
     my $ev_d = "DELETE FROM e"
-	. " USING feature_accessions x, feature_evidence e"
-	. " WHERE x.accession = \"$acc\""
-	. " AND e.feature_id=x.feature_id"
+	. " USING feature_evidence e"
+	. " WHERE e.feature_id = \"$acc\""
 	. " AND e.ev_type='CAZy'";
     $dbh->do($ev_d) unless ($DEBUG);
     foreach my $hitref (@{$dbcan_data->{$x}}) {
@@ -87,7 +90,7 @@ foreach my $x (keys %$dbcan_data) {
 	    $hmm_cover)= @$hitref;
 	my $score = "evalue=$evalue;coverage=$hmm_cover;";
 	print STDERR "Inserting $acc :: $ev_accession\n" if ($DEBUG);
-	$sth->execute($feat_min, $feat_max, $ev_accession, $ev_min, $ev_max, $ev_length, $score, $acc) unless ($DEBUG);
+	$sth->execute($feat_min, $feat_max, $ev_accession, $ev_min, $ev_max, $ev_length, $score, $acc);# unless ($DEBUG);
     }
 }
 
@@ -215,7 +218,21 @@ sub parse_hmmsearch_output {
 	    $envfrom,
 	    $envto,
 	    $description) = split/\s+/, $line, 22;
-	push @{$dbcanhits{$prot_acc}}, [$ev_acc, $ievalue, $ev_len, $hmmfrom, $hmmto, $prot_len, $alifrom, $alito, ($hmmto-$hmmfrom/$ev_len)] if (($ievalue < 1e-5 || ($ievalue < 1e-3 && ($alifrom-$alito) < 80)) && ($hmmto-$hmmfrom)/$ev_len > 0.3);
+	    # The dbCAN paper lists 3 criteria for a 'good' hit.
+	    # length > 80 aa and e-value <1e-5
+	    # length < 80 aa and e-value 
+	    # HMM must be covered >50%
+	push @{$dbcanhits{$prot_acc}}, [$ev_acc,
+					$ievalue,
+					$ev_len,
+					$hmmfrom,
+					$hmmto,
+					$prot_len,
+					$alifrom,
+					$alito,
+					($hmmto-$hmmfrom/$ev_len)] if (
+	    ($ievalue < 1e-5 || ($ievalue < 1e-3 && ($alifrom-$alito+1) < 80)) &&
+	    ($hmmto-$hmmfrom+1)/$ev_len >= 0.5);
     }
     foreach my $prot_acc(sort keys %dbcanhits) {
 	my @hits = sort { $a->[1] <=> $b->[1] } @{$dbcanhits{$prot_acc}};

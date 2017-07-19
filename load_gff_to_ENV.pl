@@ -110,12 +110,26 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
     
     # if the feature is in the db, update the coords and annotation
     if (@$feat_r) {
-	# update seq_feat_link
+	foreach my $fid (@$feat_r) {
+	    my $featr = get_features_by_feature_id($dbh, $fid);
+	    if ($featr->{$fid}->{'location'}->{$seq_id}->{'feat_min'} != $min ||
+		$featr->{$fid}->{'location'}->{$seq_id}->{'feat_max'} != $max ||
+		$featr->{$fid}->{'location'}->{$seq_id}->{'strand'} != $strand ||
+		$featr->{$fid}->{'location'}->{$seq_id}->{'min_partial'} != $min_partial ||
+		$featr->{$fid}->{'location'}->{$seq_id}->{'max_partial'} != $max_partial) {
+		update_feature_mapping($dbh, $seq_id, $fid, {'feat_min'    => $min,
+							     'feat_max'    => $max,
+							     'strand'      => $strand,
+							     'min_partial' => $min_partial,
+							     'max_partial' => $max_partial});
+	    }
+	}
 	# update feature_annotations
     } else {
 	# insert the information
+	warn "inserting new row for $locus_tag on $seq_id\n";
 	my $SO_term;
-	my $feat_id = load_SeqFeature($dbh, $seq_id, $feature, $seqobj, $SO_term, $source, $prefix);
+#	my $feat_id = load_SeqFeature($dbh, $seq_id, $feature, $seqobj, $SO_term, $source, $prefix);
     }
 }
 

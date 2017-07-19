@@ -31,7 +31,7 @@ my $dsth = $dbh->prepare($ev_d);
 
 my $ev_i = "INSERT INTO feature_evidence"
     . " (feature_id, feat_min, feat_max, program, ev_type, ev_accession)"
-    . " VALUES(?, ?, ?, 'TATfind1.4a', 'SP', 'TAT')";
+    . " VALUES(?, '', '', 'TATfind1.4a', 'SP', 'TAT')";
 my $sth = $dbh->prepare($ev_i);
 
 while (my $line = <$in>) {
@@ -67,12 +67,12 @@ while (my $line = <$in>) {
 	}
     } else {
 	# this is for long form output.
-	if ($f[2] eq "TMhelix") {
+	if (!defined($f[9])) {
 	    #my @acc = split(/\|/, $acc);
-	    my $ev_acc = $f[0];
-	    my $min = $f[3];
-	    my $max = $f[4];
-	    $sth->execute($fid, $min, $min, $ev_acc);
+	   # my $ev_acc = $f[0];
+	   # my $min = $f[3];
+	   # my $max = $f[4];
+	    $sth->execute($fid);
 	}
     }
 }

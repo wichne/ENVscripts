@@ -1,5 +1,7 @@
 #!/usr/bin/perl
 
+#08/21/2016 JMo Edited to take in feature_id ($acc[1]) instead of using subroutine get_feature_by_accession for hmm loading
+
 use lib $ENV{SCRIPTS};
 use ENV;
 use DBI;
@@ -66,7 +68,7 @@ if ($hmm_file) {
 	    die "Confused about which field contains hmm_acc - time for some software engineering!\n";
 	}
 
-	&load_hmm_annotation($dbh, &get_feature_id_by_accession($acc[0]), $hmm_acc)
+	&load_hmm_annotation($dbh, $acc[1], $hmm_acc)
 	    if ($hmmref->{$hmm_acc}->{iso_type} eq "equivalog" &&
 		$full_score > $hmmref->{$hmm_acc}->{'trusted_cutoff'});
     }

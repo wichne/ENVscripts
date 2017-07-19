@@ -33,23 +33,26 @@ while (my $seqo = $fileo->next_seq) {
     foreach my $featObj (@features) {
 	if ($featObj->primary_tag eq "gene") {
 	    if ($featObj->has_tag('pseudo')) {
-		my $fid = &get_feature_id_by_accession($dbh, $featObj->get_tag_values('locus_tag'));
-		my $current = is_current($dbh, $fid);
 		my ($locus_tag) = $featObj->get_tag_values('locus_tag');
 		my $aa = $dbo->get_Seq_by_id($locus_tag)->seq;
-		if ($fid && $current) {
+		if (!$aa) { warn "No protein sequence found for $locus_tag in $file\n";}
+		my $fid = &get_feature_id_by_accession($dbh, $locus_tag);
+		if ($fid) {
 		    print "$locus_tag already loaded\n";
-		    # update sequence_features.product field
-		    # set the feature to pseudo
-		    my $q = "update seq_feat_mappings set pseudo=5 where seq_id=$seq_id and feature_id=$fid";
-		    $dbh->do($q);
-		    next;
-		} elsif ($fid) {
-		    print "Feature not on current molecule. Loading seq_feat_mappings and updating product...\n";
-		    load_seq_feat_mappings($dbh, $fid, $seq_id, $featObj);
-		    &update_product($dbh, $fid, $aa);
-		    my $q = "update seq_feat_mappings set pseudo=5 where seq_id=$seq_id and feature_id=$fid";
-		    $dbh->do($q);
+		    my $current = is_current($dbh, $fid);
+		    if ($current) {
+			# update sequence_features.product field
+			&update_product($dbh, $fid, $aa);
+			# set the feature to pseudo
+			my $q = "update seq_feat_mappings set pseudo=5 where seq_id=$seq_id and feature_id=$fid";
+			$dbh->do($q);
+			next;
+		    } else {
+			print "Feature is is_current=0 (i.e., deleted). Updating seq_feat_mappings and product...\n";
+			&update_product($dbh, $fid, $aa);
+			my $q = "update seq_feat_mappings set pseudo=5 where seq_id=$seq_id and feature_id=$fid";
+			$dbh->do($q);
+		    }
 		} else {
 		    $seqObj->add_tag_value('translation', $aa);
 		    $fid = &load_SeqFeature($dbh, $seq_id, $featObj, $seqObj, undef, "JGI");

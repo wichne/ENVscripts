@@ -30,9 +30,8 @@ while (my $line = <$in>) {
     chomp $line;
     my ($acc, $ko) = split/\s+/, $line;
     next if (! $ko);
-    my @acc = $acc;
-    my $fid_ref = &get_feature_id_by_accession($dbh, $acc);
-    my $fid = $fid_ref->{$acc}->{'feature_id'};
+    my $fid = &get_feature_id_by_accession($dbh, $acc);
+    if (! $fid) { warn "Couldn't find feature_id from $acc\n"; next; }
 
     my $fref = &get_protein_by_feature_id($dbh, $fid);
     my $ev_d = "DELETE FROM feature_evidence WHERE feature_id=$fid AND ev_type='KO'";
@@ -44,19 +43,6 @@ while (my $line = <$in>) {
 }
 
 ##subs##
-sub get_feature_id_by_accession {
-    my $dbh = shift;
-    my @accession = @_;
-
-    my $f_id_q = "SELECT accession, feature_id FROM feature_accessions"
-        . " WHERE accession in (\"" . join("\",\"", @accession) . "\")";
-
-    my $r = $dbh->selectall_hashref($f_id_q, 'accession'); 
-    {
-        return $r;
-    }
-}
-
 sub get_protein_by_feature_id {
     my $dbh = shift;
     my @feature_ids = @_;

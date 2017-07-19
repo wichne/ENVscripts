@@ -10,6 +10,7 @@ my %arg;
 my $dbh = ENV::connect(\%arg);
 
 my $usage = "overlap_analysis.pl -D db -p dbpswd [-u dbuser -o outputfile -i set_id -n set_name -s seq_id ]\n";
+if ($arg{'h'}) { die $usage }
 
 $| = 1;
 if ($arg{h}) { print $usage; exit()}
@@ -29,7 +30,7 @@ if ($arg{s}) {
 } else {
     @set_ids = sort {$a<=>$b} keys(%{&get_seq_sets($dbh)});
 }
-
+print "set_id\tseq_id\tfeat_type\tfeat_id\tlength\toverlap\tfeat_type\tfeat_id\tlength\tcomment\n";
 foreach my $set_id (@set_ids) {
     print STDERR "Checking set $set_id\n";
     my $seq_ids = &set_id_to_seq_ids($dbh, $set_id);
@@ -46,14 +47,18 @@ foreach my $set_id (@set_ids) {
 	    for (my $j= $i > 10 ? $i - 10 : 0; $j<@feat_ids; $j++) {
 		my $ofeat_id = $feat_ids[$j];
 		if ($sfeat_id == $ofeat_id) { last }
+		my $slocus = $feat_ref->{$sfeat_id}->{'accessions'}->{'locus_tag'}->[0]
+		    if (defined $feat_ref->{$sfeat_id}->{'accessions'}->{'locus_tag'});
+		my $olocus = $feat_ref->{$ofeat_id}->{'accessions'}->{'locus_tag'}->[0]
+		    if (defined $feat_ref->{$ofeat_id}->{'accessions'}->{'locus_tag'});
 		my $overlap = &overlap($feat_ref->{$sfeat_id}->{'location'}->{$seq_id}->{'feat_min'},
 				       $feat_ref->{$sfeat_id}->{'location'}->{$seq_id}->{'feat_max'},
 				       $feat_ref->{$ofeat_id}->{'location'}->{$seq_id}->{'feat_min'},
 				       $feat_ref->{$ofeat_id}->{'location'}->{$seq_id}->{'feat_max'});
 		my $olen = $feat_ref->{$ofeat_id}->{'location'}->{$seq_id}->{'feat_max'} - $feat_ref->{$ofeat_id}->{'location'}->{$seq_id}->{'feat_min'} + 1;
 		if (!$overlap || ($overlap <= 60 && $slen > 120 && $olen > 120)) { next }
-		print "$set_id $seq_id $feat_ref->{$sfeat_id}->{feat_type} $sfeat_id ($slen)"
-		    . " overlaps $feat_ref->{$ofeat_id}->{feat_type} $ofeat_id ($olen) by $overlap nt. ";
+		print "$set_id\t$seq_id\t$feat_ref->{$sfeat_id}->{feat_type}\t$sfeat_id\t$slocus\t$slen\t"
+		    . "$overlap\t$feat_ref->{$ofeat_id}->{feat_type}\t$ofeat_id\t$olocus\t$olen";
 		my $oev_ref = &get_evidence_for_feature($dbh, $ofeat_id);
 		if (@$sev_ref == 0 && @$oev_ref > 0 &&
 		    $overlap/$slen > 0.5 &&

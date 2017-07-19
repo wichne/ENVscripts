@@ -28,7 +28,7 @@ if ($outfile) {
 #my $setref = &get_seq_sets($dbh);
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
 
-my $protref = &get_seq_features_by_set_id($dbh, $setid, "CDS");
+my $protref = &get_seq_features_by_set_id($dbh, $setid);
 
 foreach my $fid (sort {
     $protref->{$a}->{'location'}->{'seq_id'} <=> $protref->{$b}->{'location'}->{'seq_id'} ||

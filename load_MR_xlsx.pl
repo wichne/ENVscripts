@@ -6,7 +6,7 @@ use strict;
 use Getopt::Std;
 use Spreadsheet::ParseXLSX;
 use Spreadsheet::ParseExcel;
-
+$|=1;
 my %arg;
 &getopts('f:D:p:u:c:i:h', \%arg);
 
@@ -39,11 +39,13 @@ for my $wksht ($wkbk->worksheets() ) {
     # will keep track of genes in db vs genes in 'pro'
     # table and set f.is_current=0 for those that are not
     # in 'pro' table.
-    print STDERR "Found worksheet ", $wksht->get_name, "\n";
+    print "Found worksheet ", $wksht->get_name, "\n";
     if ($wksht->get_name =~ /pro$/) {
 	my %CURRENT;
 	my ( $row_min, $row_max ) = $wksht->row_range();
 	my ( $col_min, $col_max ) = $wksht->col_range();
+	if ($row_min < 0) { $row_min = 0 }
+	if ($col_min < 0) { $col_min = 0 }
 	
 	# the first row is headers, or should be.
 	# Look for a locus_tag field or accession field
@@ -59,7 +61,7 @@ for my $wksht ($wkbk->worksheets() ) {
 	    $locus_col);
 	for my $col ($col_min .. $col_max) { 
 	    my $cell = $wksht->get_cell($row_min, $col);
-	    if (! defined $cell) { print STDERR "No cell: $row_min, $col\n"; next; }
+	    if (! defined $cell) { print "No cell: $row_min, $col\n"; next; }
 	    if ($cell->value =~ /curated product descriptor/i) {
 		$product_col = $col;
 	    } elsif ($cell->value =~ /^\s*gene\s*$/i) {
@@ -70,7 +72,7 @@ for my $wksht ($wkbk->worksheets() ) {
 		$rast_col = $col;
 	    } elsif ($cell->value =~ /img acc/i) {
 		$img_col = $col;
-	    } elsif ($cell->value =~ /locus[\s\_]tag/i) {
+	    } elsif ($cell->value =~ /^locus[\s\_]tag$/i) {
 		$locus_col = $col;
 	    }
 	}
@@ -91,10 +93,12 @@ for my $wksht ($wkbk->worksheets() ) {
 	    # print STDERR "Found $lookup...";
 	    my $fid = get_feature_id_by_accession($dbh, $lookup);
 	    if (! $fid) {
-		print STDERR "Couldn't find feature_id for $lookup\n";
+		print "Couldn't find feature_id for $lookup\n";
 		next;
 	    }
-	    $CURRENT{$fid} = 1;
+	    if (is_current($dbh, $fid)) {
+		$CURRENT{$fid} = 1;
+	    } else { print "$lookup ($fid) is not current. Skipping...\n"; next; }
 
 	    my $AnnColl = Bio::Annotation::Collection->new();
 	    my ($description,
@@ -170,7 +174,7 @@ for my $wksht ($wkbk->worksheets() ) {
 	my $sth = $dbh->prepare($is_c_q);
 	foreach my $f (@$fids) {
 	    if (! defined $CURRENT{$f}) {
-		print STDERR "$f is not listed in spreadsheet.\n";
+		print "$f is not listed in spreadsheet.\n";
 # Let's not do this now. It looks like more work needs to be done on this issue.
 #		$sth->execute($f);
 	    }

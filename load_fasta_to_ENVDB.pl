@@ -10,7 +10,9 @@ use lib $ENV{SCRIPTS};
 use ENV;
 
 my $args = {};
-&getopts('f:F:D:P:s:', $args);
+&getopts('f:F:D:P:s:h', $args);
+
+if ($args->{h}) { die "-f file\n-F format\n-D database\n-P password\n-sset_id\n-h [print this]\n"; }
 
 my $filename = $args->{'f'} or die "Need to provide filename with -f\n";
 my $database = $args->{'D'} or die "Need to provide database with -D\n";
