@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-use lib $ENV{'ENVLIB'};
+use lib $ENV{'ENVSCRIPTS'};
 use ENV;
 use Getopt::Std;
 use strict;

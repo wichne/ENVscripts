@@ -46,13 +46,6 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
 
     my $feat_type = $feature->primary_tag();
     if ($feat_type eq "source") {
-#	my $asmbl_id_q = "SELECT a.asmbl_id FROM assembly a, stan s"
-#	    . " WHERE length(sequence) = " . $feature->end()
-#	    . " AND iscurrent = 1 AND s.asmbl_id=a.asmbl_id";
-#	my $res = $sgc->dbh->selectall_arrayref($asmbl_id_q);
-#	if (@$res > 1) { die "Too many current asmbl_ids with length " . $feature->end . "\n" }
-#	elsif (@$res == 0) { die "No asmbl_ids of length " . $feature->end() . "\n" }
-#	else { $asmbl_id = $res->[0]->[0] }
 	next FEATURE;
     }
 
@@ -91,25 +84,24 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
 	
     my $acc_q = "SELECT feature_id from feature_accessions where accession = \"$locus_tag\"";
     my $feat_r = $dbh->selectcol_arrayref($acc_q);
+    if (@$feat_r) {
+	print "Accession $locus_tag is already in db. skipping...\n";
+	next;
+    }
 
     # ...then by coords
-    if (! @$feat_r) {
+    else {
 	my $coords_q = "SELECT feature_id FROM seq_feat_mappings"
 	    . " WHERE seq_id = $seq_id"
 	    . " AND strand = \"$strand\""
 	    . " AND (feat_min = $min OR feat_max = $max)";
 	$feat_r = $dbh->selectcol_arrayref($coords_q);
-    }
 
-    
-    # if the feature is in the db, update the coords and annotation
-    if (@$feat_r) {
-	# update seq_feat_link
-	# update feature_annotations
-    } else {
-	# insert the information
-	my $SO_term;
-	my $feat_id = load_SeqFeature($dbh, $seq_id, $feature, $seqobj, $SO_term, $source, $prefix);
+	if (!@$feat_r) {
+	    print "Couldn't find a feature using coords $min/$max. Skipping...\n";
+	} else {
+	    insert_feature_accessions($dbh, $feat_r->[0], $acc, $source, $prefix);
+	}
     }
 }
 

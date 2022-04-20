@@ -7,7 +7,7 @@
 use Getopt::Std;
 use DBI;
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 
 my %arg;
@@ -30,14 +30,16 @@ while (my $line = <$in>) {
     chomp $line;
     my ($acc, $ko) = split/\s+/, $line;
     next if (! $ko);
-    my $fid = &get_feature_id_by_accession($dbh, $acc);
+    my $fid;
+    if ($acc =~ /^\d+$/) { $fid = $acc }
+    else { $fid = &get_feature_id_by_accession($dbh, $acc) }
     if (! $fid) { warn "Couldn't find feature_id from $acc\n"; next; }
 
     my $fref = &get_protein_by_feature_id($dbh, $fid);
     my $ev_d = "DELETE FROM feature_evidence WHERE feature_id=$fid AND ev_type='KO'";
     my $dsth= $dbh->do($ev_d);
-    my $ev_i = "INSERT INTO feature_evidence (feature_id, ev_accession, feat_min, feat_max, ev_type, program)"
-	. " VALUES ($fid, \"$ko\", 1, " . length($fref->{$fid}->{'product'}) . ", \"KO\", \"KOALA\")\n";
+    my $ev_i = "INSERT INTO feature_evidence (feature_id, ev_accession, feat_min, feat_max, ev_type, program, score)"
+	. " VALUES ($fid, \"$ko\", 1, " . length($fref->{$fid}->{'product'}) . ", \"KO\", \"KOALA\", 1)\n";
 
     my $sth = $dbh->do($ev_i);
 }

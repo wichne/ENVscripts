@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 # edited by JMo July 16 2014
 # edited by WCN Feb 10, 2015
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use strict;
 use Getopt::Std;

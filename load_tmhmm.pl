@@ -4,7 +4,7 @@
 use Getopt::Std;
 use DBI;
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 
 my %arg;
@@ -30,8 +30,8 @@ my $ev_d = "DELETE FROM feature_evidence"
 my $dsth = $dbh->prepare($ev_d);
 
 my $ev_i = "INSERT INTO feature_evidence"
-    . " (feature_id, feat_min, feat_max, program, ev_type, ev_accession)"
-    . " VALUES(?, ?, ?, 'TMHMM2.0', 'TMH', 'TMhelix')";
+    . " (feature_id, feat_min, feat_max, program, ev_type, ev_accession, score)"
+    . " VALUES(?, ?, ?, 'TMHMM2.0', 'TMH', 'TMhelix', 1)";
 my $sth = $dbh->prepare($ev_i);
 
 while (my $line = <$in>) {

@@ -1,21 +1,22 @@
 #!/usr/bin/perl
 
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
 use Bio::SeqIO;
 
 my $opt = {};
-&getopts('D:i:n:o:', $opt);
+&getopts('D:i:n:o:A:', $opt);
 my $db = $opt->{D};
 my $setid = $opt->{i};
 my $setname = $opt->{n};
 my $outfile = $opt->{o};
+my $acc_source = $opt->{A};
 
 my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
-my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'access');
+my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'mySQL@cce55');
 
 
 my $OUT;
@@ -27,7 +28,7 @@ if ($outfile) {
 
 #my $setref = &get_seq_sets($dbh);
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
-
+if (!$setname && $setid) { $setname = &set_id_to_set_name($dbh, $setid); }
 my $protref = &get_seq_features_by_set_id($dbh, $setid);
 
 foreach my $fid (sort {
@@ -56,7 +57,10 @@ foreach my $fid (sort {
 				$phase = 0; }
 
     # The description stuff
-    my $ID = "$db|$fid";
+    my $ID = "ID=${db}_$fid";
+    if ($acc_source) {
+	$ID = "ID=" . $protref->{$fid}->{'accessions'}->{$acc_source};
+    }
     my @alias;
     foreach my $src (keys %{$protref->{$fid}->{'accessions'}}) {
 	my $acc = $protref->{$fid}->{'accessions'}->{$src};

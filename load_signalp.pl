@@ -3,7 +3,7 @@
 use Getopt::Std;
 use DBI;
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 
 my %arg;

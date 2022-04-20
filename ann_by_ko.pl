@@ -3,7 +3,7 @@
 #Edited by Jmo 11/09/2015 to use ghostKO/Koala KEGG files
 #Edited by Jmo 07/18/14 to change in and parse the feature_acc to accept a KAAS file with multiple acc 
 
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
@@ -63,21 +63,21 @@ sub load_ko_annotation {
     my $dbh = shift;
     my $feat_id = shift;
     my $ko_acc = shift;
-
+    if (! $feat_id) { die "No feat_id." }
     # clear out existing data
     my $del_q = "DELETE FROM feature_annotations"
 	. " WHERE feature_id=$feat_id"
-	. " AND rank = 5"
-	. " AND source = 'ghostKOALA'";
+	. " AND ann_rank = 5"
+	. " AND source = 'kofamscan'";
     $dbh->do($del_q);
     
-    my $upd_q = "INSERT feature_annotations"
-	. " (feature_id, data_type_id, value, rank, source, edit_by)"
-	. " VALUES ($feat_id, ?, ?, 5,\"ghostKOALA\", USER())"
+    my $upd_q = "INSERT INTO feature_annotations"
+	. " (feature_id, data_type_id, value, ann_rank, source, edit_by)"
+	. " VALUES ($feat_id, ?, ?, 5,\"kofamscan\", USER())"
 	;
     my $sth = $dbh->prepare($upd_q);
     if ($koref->{$ko_acc}->{product}) {
-	$sth->execute(66, $koref->{$ko_acc}->{product});
+	$sth->execute(66, $koref->{$ko_acc}->{product}) or die $DBI::errstr;
     }
     if ($koref->{$ko_acc}->{gene_sym}) {
 	$sth->execute(35, $koref->{$ko_acc}->{gene_sym});

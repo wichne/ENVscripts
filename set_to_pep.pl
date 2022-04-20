@@ -2,12 +2,13 @@
 #Edited 05/17/2015 by Jen in order to incorporate only the databasename and feature id and organism description
 #in sequence headers
 
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
 use Bio::SeqIO;
 use Data::Dumper qw(Dumper);
+use strict;
 
 my %opt;
 &getopts('D:i:n:o:A:ah', \%opt);
@@ -16,8 +17,9 @@ if ($opt{h}) {
     die "USAGE\nset_to_pep.pl -D db [ -i set_id -n set_name ] [-o output_file -A source_for_accession -a (include annotation) ]\n";
 }
 
+my $db = $opt{D};
 my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
-my $dbh = DBI->connect("dbi:mysql:host=$host;db=$opt{D}", 'access', 'access');
+my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'mySQL@cce55');
 
 my $setid = $opt{i};
 my $setname = $opt{n};
@@ -35,11 +37,19 @@ if ($opt{o}) {
 open (my $PSEUDO, ">$pseudo_file");
 
 #my $setref = &get_seq_sets($dbh);
+## Make sure we have a set id and a set name
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
 
+## get the features from the setid
 my $protref = &get_seq_features_by_set_id($dbh, $setid, "CDS");
+
+## get the seqids from the setid
 my $seqids = &set_id_to_seq_ids($dbh, $setid);
+
+## get the set description
 my $setdesc = &get_set_desc($dbh,$setid);
+
+## get the sequences by the seqids
 our $SEQ = &get_sequence_by_seq_id($dbh, @$seqids);
 
 foreach my $fid (sort {
@@ -50,16 +60,19 @@ foreach my $fid (sort {
 #    my $acc = join("|", values %{$protref->{$fid}->{'accessions'}});
     my $acc;
     if ($opt{A}) {
-	if (defined $protref->{$fid}->{'accessions'}->{$opt{A}}) {
+	if ($opt{A} eq "all") {
+	    $acc = "gnl|${db}_$fid";
+	    foreach my $src (keys %{$protref->{$fid}->{'accessions'}}) {
+		$acc .= "|" . $protref->{$fid}->{'accessions'}->{$src};
+	    }
+	} elsif (defined $protref->{$fid}->{'accessions'}->{$opt{A}}) {
 	    $acc = $protref->{$fid}->{'accessions'}->{$opt{A}};
-	    $acc =~ s/.*\|//;
 	} else {
-	    $acc = $fid;
+	    $acc = "gnl|${db}_$fid";
 	}
     } else {
-	my $locus = $protref->{$fid}->{'accessions'}->{'locus_tag'};
-	my $db = $opt{D};
-	$acc = "$db|$fid|$locus";
+	#my $locus = $protref->{$fid}->{'accessions'}->{'locus_tag'};
+	$acc = "${db}_$fid";
     }
 
     my $gene_length = $protref->{$fid}->{'location'}->{'feat_max'} - $protref->{$fid}->{'location'}->{'feat_min'} + 1;
@@ -86,7 +99,7 @@ foreach my $fid (sort {
 	if (!($min && $max) || ($min >= $max)) { warn "Why $min/$max for $fid, $acc?\n";}
 	my $seq = &get_subseq($seq_id, $min, $max, $strand);
 	my $seqo = Bio::Seq->new(-display_id => $acc,
-				 -desc => $desc,
+				 -desc => 'temp',
 				 -seq => $seq);
 	my $complete = $min_partial || $max_partial ? 0 : 1; 
 	my $protobj = $seqo->translate(-complete => $complete,
@@ -101,12 +114,14 @@ foreach my $fid (sort {
 	    $desc .= " $qual=$vref->{$k}->[0]->{value};";
 	}
 	if ($protref->{$fid}->{'location'}->{'pseudo'} > 0) {
-	    $desc .= " pseudogene=" . $PSEUDOKEY{$protref->{$fid}->{location}->{pseudo}} . ";";
+	    $desc .= " pseudogene=" . $ENV::PSEUDOKEY{$protref->{$fid}->{location}->{pseudo}} . ";";
 	}
     }
     if ($protref->{$fid}->{'product'} =~ /\*./) {
 	warn "INTERNAL STOP: $fid $acc $protref->{$fid}->{pseudo}\n";
-	print $PSEUDO "$fid\t$seq_id\t$min\t$max\n";
+	printf $PSEUDO "$fid\t%s\t%s\t%s\n", ($protref->{$fid}->{'location'}->{'seq_id'},
+					      $protref->{$fid}->{'location'}->{'feat_min'},
+					      $protref->{$fid}->{'location'}->{'feat_max'});
 #	next;
     }
     if ($protref->{$fid}->{'product'} =~ /\*$/) {

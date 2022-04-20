@@ -13,7 +13,7 @@ my $dbh = &connect(\%arg);
 my $q = "SELECT feature_id, value, ann_rank, source"
     . " FROM feature_annotations"
     . " WHERE data_type_id=66"
-    . " AND value REGEXP '[\\(\\\\[] ?EC[ :]'"
+    . " AND value REGEXP '\\(TC [0-9]+\.[A-Z](\.[0-9]+){3}\\)'"
 #    . " AND value REGEXP '[\\(\\\\[]EC[ :][0-9]+(\.[0-9\-]+){3}[\\)\\\\]]'"
 #    . " AND value REGEXP '[\\\\[]EC[ :][0-9]+(\.[0-9\-]+){3}[\\\\]]'"
     ;
@@ -24,17 +24,17 @@ my $val_u = "UPDATE feature_annotations set value = ?"
     . " WHERE feature_id=?"
     . " AND value = ?";
 my $val_sth = $dbh->prepare($val_u);
-my $ec_i = "INSERT INTO feature_annotations (feature_id, data_type_id, value, ann_rank, source)"
-    . " VALUES (?, 1, ?, ?, ?)";
-my $ec_sth = $dbh->prepare($ec_i);
+my $tc_i = "INSERT INTO feature_annotations (feature_id, data_type_id, value, ann_rank, source)"
+    . " VALUES (?, 98, ?, ?, ?)";
+my $tc_sth = $dbh->prepare($tc_i);
 
 foreach my $row(@$result) {
     my ($fid, $val, $rank, $source) = @$row;
-    my @ecs;
+    my @tcs;
     my $new_val = $val;
-    while ($val =~ /[\(\[] ?EC[ \:]([^\)\]]+)[\)\]]/g) {
+    while ($val =~ /[\(\[] ?TC[ \:]([^\)\]]+)[\)\]]/g) {
         my $whole_string = $&;
-        push @ecs, split(/[, ]+/, $1);
+        push @tcs, split(/[, ]+/, $1);
         $new_val =~ s/\Q$whole_string\E//;
         #$new_val =~ s/\(\)//;
     }
@@ -42,12 +42,12 @@ foreach my $row(@$result) {
     print "\t$new_val\n";
     $val_sth->execute($new_val, $fid, $val);
 
-    foreach my $ec (@ecs) {
-	if ($ec =~ /\d+(\.(\d+|\-)){1,2}(\.[nB]?\d+)?/) {
-	    print "\t$ec\n";
-	    $ec_sth->execute($fid, $ec, $rank, $source);
+    foreach my $tc (@tcs) {
+	if ($tc =~ /\d+\.[A-Z](\.\d+){3}/) {
+	    print "\t$tc\n";
+	    $tc_sth->execute($fid, $tc, $rank, $source);
 	} else {
-	    print "bad ec: $ec\n";
+	    print "bad tc: $tc\n";
 	    next;
 	}
     }

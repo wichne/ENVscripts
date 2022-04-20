@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 
+use lib $ENV{ENVSCRIPTS};
+use ENV;
 use Getopt::Std;
 use strict;
-use lib $ENV{ENVLIB};
-use ENV;
 
 my %arg;
 my $DEBUG = 0;
@@ -45,37 +45,38 @@ if ($arg{'s'}) {
 
 foreach my $seq_id (@$seq_aref) {
     my $feat_aref = &get_feature_ids_by_seq_id($dbh, $seq_id);
-    #sort feature_ids by position
     my $feat_ref = &get_features_by_feature_id($dbh, @$feat_aref);
-    foreach my $fid (sort {$feat_ref->{$a}->{'location'}->{$set_id}->{'feat_min'} <=>
-			       $feat_ref->{$b}->{'location'}->{$set_id}->{'feat_min'} } keys %$feat_ref) {	    
-	$i += 5;
-	#assign a locus_tag indexed by 5s.
-        # HLUCC[A|O]bin00_00005
-	my $locus_tag = sprintf $prefix . "_%0${zeros}i", ($i);
-	
-	# check for existing locus_tag in feature_accessions
-	my $existing_locus_ref=&get_accession_by_feature_id($dbh, $fid, $source);
-	if (@$existing_locus_ref > 0) {
-	    foreach my $existing_locus (@$existing_locus_ref) {
-		if ($existing_locus eq $locus_tag) { next }
-		else {
-		    warn "$fid: Existing accession '$existing_locus' will be set to '${source}_old' and new accession '$locus_tag' will be inserted as '$source'\n";
-		    # if it exists rename the source to 'locus_tag_old'
-		    &set_accession_to_old($dbh, $fid, $source, $existing_locus);
+    #sort feature_ids by position
+    foreach my $fid (sort {$feat_ref->{$a}->{'location'}->{$seq_id}->{'feat_min'} <=>
+			       $feat_ref->{$b}->{'location'}->{$seq_id}->{'feat_min'} } keys %$feat_ref) {
+		if ($feat_ref->{$fid}->{'feat_type'} ne 'CDS' &&
+		    $feat_ref->{$fid}->{'feat_type'} !~ /RNA$/) { next }
+		$i += 5;
+		#assign a locus_tag indexed by 5s.
+		my $locus_tag = sprintf $prefix . "_%0${zeros}i", ($i);
+		
+		# check for existing locus_tag in feature_accessions
+		my $existing_locus_ref=&get_accession_by_feature_id($dbh, $fid, $source);
+		if (@$existing_locus_ref > 0) {
+			foreach my $existing_locus (@$existing_locus_ref) {
+				if ($existing_locus eq $locus_tag) { next }
+				else {
+					warn "$fid: Existing accession '$existing_locus' will be set to '${source}_old' and new accession '$locus_tag' will be inserted as '$source'\n";
+					# if it exists rename the source to 'locus_tag_old'
+					&set_accession_to_old($dbh, $fid, $source, $existing_locus);
+				}
+			}
 		}
-	    }
-	}
 	
-	if (!$arg{'t'}) {
-	    # insert a new row with source 'locus_tag'
-	    my $locus_tag_i = "INSERT INTO feature_accessions"
-		. " (feature_id, source, accession)"
-		. " VALUES ($fid, '$source', '$locus_tag')";
-	    $dbh->do($locus_tag_i) unless ($DEBUG);
-	} else {
-	    print "$seq_id -> $fid -> $locus_tag\n";
-	}
+		if (!$arg{'t'}) {
+			# insert a new row with source 'locus_tag'
+			my $locus_tag_i = "INSERT INTO feature_accessions"
+			. " (feature_id, source, accession)"
+			. " VALUES ($fid, '$source', '$locus_tag')";
+			$dbh->do($locus_tag_i) unless ($DEBUG);
+		} else {
+			print "$seq_id -> $fid -> $locus_tag\n";
+		}
     }
 }
 

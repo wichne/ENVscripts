@@ -5,14 +5,15 @@ use Bio::Tools::GFF;
 use Bio::SeqFeature::Generic;
 use Bio::DB::Fasta;
 use Getopt::Std;
-use lib $ENV{SCRIPTS};
+use URI::Escape;
+use lib $ENV{ENVSCRIPTS};
 #use ProkGene;
 use ENV;
 
 my $opts = {};
 &getopts('D:u:p:g:f:s:P:i:l:', $opts);
 
-my ($dbh, $gff_file, $fasta_file, $source, $locus_prefix, $prefix) = &handle_options($opts);
+my ($dbh, $gff_file, $fasta_file, $source, $locus_prefix, $prefix, $set_id) = &handle_options($opts);
 #my $fadb = Bio::DB::Fasta->new($fasta_file, (-reindex => 1));
 #my $FT = get_feat_types($dbh);
 
@@ -29,7 +30,7 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
 	my @acc = split/\|/, $seq_acc;
 	#my @acc = split /\_/, $seq_acc;
 	foreach my $a (@acc) {
-	    $seqobj = get_sequence_by_accession($dbh, $a);
+	    $seqobj = get_sequence_by_accession($dbh, $a, $set_id);
 	    last if $seqobj;
 	}
 	$seq_id = $seqobj->id;
@@ -52,7 +53,7 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
 #	elsif (@$res == 0) { die "No asmbl_ids of length " . $feature->end() . "\n" }
 #	else { $asmbl_id = $res->[0]->[0] }
 	next FEATURE;
-    }
+    } elsif ($feat_type eq "mRNA" || $feat_type eq "exon" || $feat_type eq "gene") { next FEATURE }
 
     # grab data from object
     my $data = {};
@@ -88,7 +89,7 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
 	    }
 	}
     }
-
+    print STDERR "Doing $feat_type $locus_tag...\n";
     # look for existing feature
     # first by accession...
 	
@@ -105,15 +106,75 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
     }
 
     
-    # if the feature is in the db, update the coords and annotation
+    # if the feature is in the db, update the coords and annotation and add the accession (if necessary)
     if (@$feat_r) {
-	# update seq_feat_link
-	# update feature_annotations
+	print STDERR "\tFound matching feature in db: " . $feat_r->[0] . "\n";
+	delete_feature_annotations($dbh, $feat_r->[0], {'source' => $source, 'ann_rank' => 10});
+	my $feat_ann_i = "INSERT feature_annotations"
+	    . " (feature_id, data_type_id, value, source, ann_rank)"
+	    . " VALUES (?, ?, ?, ?, ?)";
+	my $ann_h = $dbh->prepare($feat_ann_i);
+
+	if (grep /^product$/, @tags) {
+	    my $product = uri_unescape([$feature->get_tag_values('product')]->[0]);
+	    $ann_h->execute($feat_r->[0], 66, $product, $source, 10);
+	} elsif (grep /^Name$/, @tags) {
+	    my $product = uri_unescape([$feature->get_tag_values('Name')]->[0]);
+            $ann_h->execute($feat_r->[0], 66, $product, $source, 10);
+        }
+
+	if (grep /^EC$/, @tags) {
+	    foreach my $ec (@{$feature->get_tag_values('EC')}) {
+		$ann_h->execute($feat_r->[0], 1, $ec, $source, 10);
+	    }
+	}
+
+	if (grep /^sso$/i, @tags) { # KBase SEED sequence ortholog
+	    $ann_h->execute($feat_r->[0], 23, [$feature->get_tag_values('sso')]->[0], $source, 10);
+	}
+
+	# insert the accession
+	my $feat_acc_i = "INSERT feature_accessions"
+	    . " (feature_id, accession, source, prefix)"
+	    . " VALUES (?, ?, ?, ?)";
+	my $acc_h = $dbh->prepare($feat_acc_i);
+	
+	my @accs = split(/\|/, $locus_tag);
+	for my $acc (@accs) {
+	    if ($acc ~~ ["gb", "RefSeq", "PNNL", "RAST", "gp", "gi", "fig"]) { next }
+	    else { $acc_h->execute($feat_r->[0], $acc, $source, $prefix) }
+	}
+	
+
+       # update seq_feat_link
+
     } else {
 	# insert the information
 	my $SO_term;
 	my $feat_id = load_SeqFeature($dbh, $seq_id, $feature, $seqobj, $SO_term, $source, $prefix);
-    }
+ 	my $feat_ann_i = "INSERT feature_annotations"
+	    . " (feature_id, data_type_id, value, source, ann_rank)"
+	    . " VALUES (?, ?, ?, ?, ?)";
+	my $ann_h = $dbh->prepare($feat_ann_i);
+
+	if (grep /^product$/, @tags) {
+	    my $product = uri_unescape([$feature->get_tag_values('product')]->[0]);
+	    $ann_h->execute($feat_r->[0], 66, $product, $source, 10);
+	} elsif (grep /^Name$/, @tags) {
+	    my $product = uri_unescape([$feature->get_tag_values('Name')]->[0]);
+            $ann_h->execute($feat_r->[0], 66, $product, $source, 10);
+        }
+
+	if (grep /^EC$/, @tags) {
+	    foreach my $ec (@{$feature->get_tag_values('EC')}) {
+		$ann_h->execute($feat_r->[0], 1, $ec, $source, 10);
+	    }
+	}
+
+	if (grep /^sso$/i, @tags) { # KBase SEED sequence ortholog
+	    $ann_h->execute($feat_r->[0], 23, [$feature->get_tag_values('sso')]->[0], $source, 10);
+	}
+   }
 }
 
 sub handle_options {
@@ -125,13 +186,14 @@ sub handle_options {
     my $fasta_file = $opts->{'f'};
     my $seq_id = $opts->{'i'};
 #    if (! $fasta_file && ! $seq_id) {$err_msg .= "Need to specify fasta file of underlying metagenome sequence with -f or seq_id with -i\n"}
-#    my $source = $opts->{'s'} || {$err_msg .= "Need to specify information source (Genbank, IMG, etc.) with -s\n"};
+    my $source = $opts->{'s'} || {$err_msg .= "Need to specify information source (Genbank, IMG, etc.) with -s\n"};
     my $prefix = $opts->{'P'} ? $opts->{'P'} : "";
     my $locus_prefix = $opts->{'l'};
+    my $set_id = $opts->{'i'};
 
     if ($err_msg) { die $err_msg }
 
-    return ($dbh, $gff_file, $fasta_file, $source, $locus_prefix, $prefix);
+    return ($dbh, $gff_file, $fasta_file, $source, $locus_prefix, $prefix, $set_id);
 }
 
 sub get_feat_types {

@@ -9,7 +9,7 @@ use strict;
 use vars qw (@ISA @EXPORT);
 use DBI;
 @ISA = qw(Exporter);
-@EXPORT = qw(connect get_sequences load_SeqFeature load_Sequence load_feature_annotations delete_feature_annotations get_sequence_by_feature_id get_accession_by_seq_id get_feature_ids_by_seq_id get_features_by_feature_id get_sequence_by_seq_id get_seq_id_by_seq_accession link_seq_to_set get_seq_sets load_sequence_sets load_PrimarySeq load_sequence_SeqFeature load_sequences load_sequence_accessions load_sequence_annotations get_sequence_by_accession set_name_to_id get_seq_features_by_set_id get_sequences_by_set_id get_feature_id_by_accession get_mainroles get_subroles set_id_to_seq_ids seq_id_to_SeqObj add_features_to_SeqObj get_evidence_for_feature get_ev_role_by_feature_id get_accession_by_feature_id get_features_by_seq_id load_seq_feat_mappings set_id_to_set_name get_locus_tag_by_feature_id get_set_names seq_id_to_set_name is_current update_product insert_feature_accessions update_feature_mapping set_name_to_set_id);
+@EXPORT = qw(connect get_sequences load_SeqFeature load_Sequence load_feature_annotations delete_feature_annotations get_sequence_by_feature_id get_accession_by_seq_id get_feature_ids_by_seq_id get_features_by_feature_id get_sequence_by_seq_id get_seq_id_by_seq_accession link_seq_to_set get_seq_sets load_sequence_sets load_PrimarySeq load_sequence_SeqFeature load_sequences load_sequence_accessions load_sequence_annotations get_sequence_by_accession set_name_to_id get_seq_features_by_set_id get_sequences_by_set_id get_feature_id_by_accession get_mainroles get_subroles set_id_to_seq_ids seq_id_to_SeqObj add_features_to_SeqObj get_evidence_for_feature get_ev_role_by_feature_id get_accession_by_feature_id get_features_by_seq_id load_seq_feat_mappings set_id_to_set_name get_locus_tag_by_feature_id get_set_names seq_id_to_set_name is_current update_product insert_feature_accessions update_feature_mapping set_name_to_set_id get_feature_id_by_coords max_locus_tag seq_id_to_set_id delete_feature_evidence protein_from_coords set_ids);
 
 sub connect {
     my $argref = shift;
@@ -18,12 +18,16 @@ sub connect {
     if (defined $argref->{'u'} && $argref->{'u'}) { $user = $argref->{'u'} }
     elsif (defined $argref->{'U'} && $argref->{'U'}) { $user = $argref->{'U'} }
     elsif (defined $argref->{'user'} && $argref->{'user'}) { $user = $argref->{'user'} }
-    else { $user = $ENV{USER}; }
+    else { $user = $ENV{'USER'}; }
     
     if (defined $argref->{'p'}) { $password = $argref->{'p'} }
     elsif (defined $argref->{'P'}) { $password = $argref->{'P'} }
     elsif (defined $argref->{'pswd'}) { $password = $argref->{'pswd'} }
-    
+    else {
+	warn "No password provided. Trying read-only anonymous access.\n";
+	$user = 'access';
+	$password = 'mySQL@cce55';
+    }
     if (defined $argref->{'D'}) { $db = $argref->{'D'} }
 
     my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
@@ -58,11 +62,21 @@ sub get_all_sequences {
 sub get_sequence_by_accession {
     my $dbh = shift;
     my $accession = shift;
+    my $set_id = shift;
 
     my $sequence_q = "SELECT s.seq_id, sequence, seq_accession"
 	. " FROM sequences s, sequence_accessions a"
 	. " WHERE s.seq_id = a.seq_id"
 	. " AND a.seq_accession = \"$accession\"";
+
+    if ($set_id) {
+	$sequence_q = "SELECT s.seq_id, sequence, seq_accession"
+	    . " FROM sequences s, sequence_accessions a, seq_set_link l"
+	    . " WHERE l.set_id = $set_id"
+	    . " AND a.seq_id=l.seq_id"
+	    . " AND a.seq_accession = \"$accession\""
+	    . " AND s.seq_id = a.seq_id";
+    }
     my $r = $dbh->selectall_hashref($sequence_q, 'seq_id');
     if (scalar(keys %$r) > 1) { die "ERROR: Sequence accession '$accession' has multiple seq_ids in database. Dying...\n";}
     foreach my $sid (keys %$r) {
@@ -76,11 +90,12 @@ sub get_sequence_by_seq_id {
     my $dbh = shift;
     my @seq_ids = @_;
     
+    if (! @seq_ids) { warn "No seq_ids provided to get_sequence_by_seq_id."; return; }
     my $data = {};
     my $sequence_q = "SELECT s.seq_id, sequence"
 	. " FROM sequences s"
 	. " WHERE s.seq_id in (". join (",",@seq_ids) . ")";
-    my $r = $dbh->selectall_hashref($sequence_q, 'seq_id') or warn "sequence_q $DBI::errstr";
+    my $r = $dbh->selectall_hashref($sequence_q, 'seq_id') or warn "$sequence_q $DBI::errstr";
     foreach my $sid (keys %$r) {
 	$data->{$sid} = Bio::Seq->new(-seq => $r->{$sid}->{'sequence'},
 				      -id => $sid,
@@ -98,6 +113,60 @@ sub get_sequence_by_seq_id {
 	$data->{$sid}->desc($desc);
     }
     return $data;
+}
+
+sub get_sequences_by_set_id {
+    my $dbh = shift;
+    my $set_id = shift;
+    my $retn =  {}; # this holds the returned sequence objects
+
+    # get sequence
+    my $sq = "select s.seq_id, sequence, seq_length, gc, category"
+	. " FROM sequences s, seq_set_link l"
+	. " WHERE set_id=$set_id"
+	. " AND s.seq_id=l.seq_id"
+	. " AND s.iscurrent=1"
+	;
+    my $seq_ref = $dbh->selectall_hashref($sq, 'seq_id');
+
+    # for each sequence, build a sequence obj
+    foreach my $seq_id (keys %$seq_ref) {
+        my $SeqObj = Bio::Seq::RichSeq->new(-seq => $seq_ref->{$seq_id}->{'sequence'},
+					-molecule => 'DNA',
+#					-display_name => $rv[1],
+#					-accession_number => $rv[1],
+#					-id => $rv[1],
+#					-primary_id => $rv[1],
+					-alphabet => 'dna',
+	                );
+        $retn->{$seq_id} = $SeqObj;
+    }
+
+    # get sequence annotations
+    my $nq = "select a.seq_id, data_type, value"
+	. " FROM sequence_annotations a, seq_set_link l"
+	. " WHERE set_id=$set_id"
+	. " AND a.seq_id=l.seq_id";
+    my $nsth = $dbh->prepare($nq);
+    $nsth->execute();
+    while (my @rv = $nsth->fetchrow_array) {
+	    push @{$seq_ref->{$rv[0]}->{'annotation'}->{$rv[1]}}, $rv[2] if (defined ($seq_ref->{$rv[0]}));
+    }
+
+    # get sequence accessions
+    my $xq = "select a.seq_id, seq_acc_source, seq_accession"
+	. " FROM sequence_accessions a, seq_set_link l"
+	. " WHERE set_id=$set_id"
+	. " AND a.seq_id=l.seq_id";
+    my $xsth = $dbh->prepare($xq);
+    $xsth->execute();
+    while (my @rv = $xsth->fetchrow_array) {
+#	    my $acc = $rv[1] ? "$rv[1]|$rv[2]" : $rv[2];
+	    my $acc = $rv[2];
+        push @{$seq_ref->{$rv[0]}->{'accessions'}}, $acc if (defined ($seq_ref->{$rv[0]}));
+    }
+
+    return $seq_ref;
 }
 
 sub get_seq_id_by_seq_accession {
@@ -154,17 +223,38 @@ sub get_locus_tag_by_feature_id {
 sub get_feature_id_by_accession {
     my $dbh = shift;
     my $accession = shift;
-    if ($accession =~ /^\s*$/) { warn "Empty accession requested ($accession)\n" }
+
+    if ($accession =~ /^\s*$/) {
+	warn "Empty accession requested ($accession)\n";
+	return;
+    }
+
+    my $f_acc_q = "SELECT distinct feature_id FROM feature_accessions"
+	. " WHERE accession = ?";
+    my $sth1 = $dbh->prepare($f_acc_q);
+
+    my $f_id_q = "SELECT feature_id FROM sequence_features WHERE feature_id=?";
+    my $sth2 = $dbh->prepare($f_id_q);
+    
     my @a = split(/\|/, $accession);
-    my $f_id_q = "SELECT distinct feature_id FROM feature_accessions"
-	. " WHERE accession in (\"" . join("\",\"", @a) . "\")";
-    my $r = $dbh->selectcol_arrayref($f_id_q);
-    if (defined $r) {
-	if (@$r > 1) {
+    foreach my $acc (@a) {
+	$sth1->execute($acc);
+	my $r = $sth1->fetchall_arrayref();
+	if (!@$r) {
+	    # if there is no feature_id associated with the acc and
+	    # the accession is numerical, is it a feature_id?
+	    if ($acc =~ /^\d+$/) {
+		$sth2->execute($acc);
+		$r = $sth2->fetchall_arrayref();
+	    }
+	}
+	
+	if (@$r > 0) {
 	    warn "$accession yielded more than one feature_id: " . join(" ", @$r) 
-		. ". Returning the first.\n"; }
-	return $r->[0];
-    } else { return }
+		. ". Returning the first.\n" if (@$r > 1);
+	    return $r->[0]->[0];
+	}
+    }
 }
 
 sub load_SeqFeature {
@@ -197,7 +287,16 @@ sub load_SeqFeature {
 
     # since peseudogenes don't have a CDS entry...
     my $feat_type = $feato->primary_tag eq "gene" && $pseudo > 0 ? "CDS" : $feato->primary_tag;
-
+    $feat_type = $feat_type eq "repeat" ? "repeat_region" : $feat_type;
+    if ($feat_type eq "rna") {
+	$feat_type = "misc_RNA";
+	# look in the product field for an INSDC feat_type
+	my @prod = $feato->get_tag_values("product");
+	foreach my $p (@prod) {
+	    if ($p =~ /((r|t|tm|m|nc|precursor_)RNA)/) { $feat_type = $1; last;}
+	}
+    }
+    
     my $prot = "";
     my $phase = 0;
     my @all_tags = $feato->get_all_tags;
@@ -235,6 +334,7 @@ sub load_SeqFeature {
     my $strand = $feato->strand;
     my $translation_coords = $feato->location->to_FTstring;
     my $feat_id = $dbh->last_insert_id("%", "%", "", "");
+    if ($feat_id == 0) { die "Got a feature_id of 0 for $seq_id $feat_type $start/$end\n"; }
     my $seq_feat_mappings_i = sprintf "INSERT seq_feat_mappings"
 	. " (seq_id, feature_id, feat_min, feat_max, strand,"
 	. " phase, min_partial, max_partial, pseudo, translation_coords)"
@@ -263,10 +363,27 @@ sub load_SeqFeature {
     
     # insert annotation
     if (grep /^product$/, @all_tags) {
-	my $feat_ann_i = "INSERT into feature_annotations"
-	    . " (feature_id, data_type_id, value, source, rank)"
+	my $feat_ann_i = "INSERT feature_annotations"
+	    . " (feature_id, data_type_id, value, source, ann_rank)"
 	    . " VALUES ($feat_id, 66, \"" . [$feato->get_tag_values('product')]->[0] . "\", \"$source\", 10)";
 	my $row4 = $dbh->do($feat_ann_i);
+	if (! defined $row4) { print STDERR "$feat_ann_i\n" }
+    }
+    if (grep /^EC$/, @all_tags) {
+	foreach my $ec (@{$feato->get_tag_values('EC')}) {
+	    my $feat_ann_i = "INSERT feature_annotations"
+		. " (feature_id, data_type_id, value, source, ann_rank)"
+		. " VALUES ($feat_id, 1, \"$ec\", \"$source\", 10)";
+	    my $row4 = $dbh->do($feat_ann_i);
+	    if (! defined $row4) { print STDERR "$feat_ann_i\n" }
+	}
+    }
+    if (grep /^sso$/i, @all_tags) { # KBase SEED sequence ortholog
+	my $feat_ann_i = "INSERT feature_annotations"
+	    . " (feature_id, data_type_id, value, source, ann_rank)"
+	    . " VALUES ($feat_id, 23, \"" . [$feato->get_tag_values('sso')]->[0] . "\", \"$source\", 10)";
+	my $row4 = $dbh->do($feat_ann_i);
+	if (! defined $row4) { print STDERR "$feat_ann_i\n" }
     }
     
     return $feat_id;
@@ -284,9 +401,11 @@ sub protein_from_coords {
     
     # Translate sequences to aa if applicable
     my $complete = $featobj->location->start_pos_type ne "EXACT" ||
-	$featobj->location->end_pos_type ne "EXACT" ? 0 : 1; 
-    my ($table) = $featobj->get_tag_values("transl_table");
-    $table = 11 if (! $table);
+	$featobj->location->end_pos_type ne "EXACT" ? 0 : 1;
+    my $table = 11;
+    if ($featobj->has_tag("transl_table")) {
+	($table) = $featobj->get_tag_values("transl_table");
+    }
     my $protobj = $featseqobj->translate(-complete => $complete,
 					 #-frame    => $phase,
 					 -codontable_id => $table);
@@ -299,7 +418,7 @@ sub delete_feature_annotations {
     my $cond_ref = shift;
     my $feature_annotations_d = "DELETE FROM feature_annotations"
 	. " WHERE feature_id=$feat_id";
-    if (defined %$cond_ref) {
+    if (%$cond_ref) {
 	foreach my $cond(keys %$cond_ref) {
 	    $feature_annotations_d .= " AND $cond = \'$cond_ref->{$cond}\'";
 	}
@@ -310,6 +429,25 @@ sub delete_feature_annotations {
 	return;
     }
 }
+
+sub delete_feature_evidence {
+    my $dbh = shift;
+    my $feat_id = shift;
+    my $cond_ref = shift;
+    my $feature_evidence_d = "DELETE FROM feature_evidence"
+	. " WHERE feature_id=$feat_id";
+    if (%$cond_ref) {
+	foreach my $cond(keys %$cond_ref) {
+	    $feature_evidence_d .= " AND $cond = \'$cond_ref->{$cond}\'";
+	}
+    }
+    my $d = $dbh->do($feature_evidence_d);
+    if (! defined $d) {
+	warn "Couldn't execute '$feature_evidence_d'";
+	return;
+    }
+}
+
 sub load_feature_annotations {
     my $dbh = shift;
     my $feat_id = shift;
@@ -318,7 +456,7 @@ sub load_feature_annotations {
     my $rank = shift;
 
     my $feature_annotation_i = "INSERT feature_annotations"
-	. " (feature_id, data_type_id, value, edit_by, date_edit, rank, source)"
+	. " (feature_id, data_type_id, value, edit_by, date_edit, ann_rank, source)"
 	. " SELECT $feat_id, d.id, ?, USER(), NOW(), ?, ?"
 	. " FROM INSDC.qualifier d"
 	. " WHERE d.qualifier=?";
@@ -420,13 +558,19 @@ sub load_sequence_SeqFeature {
     if (! defined $seqo) { warn "No seqo provided"; return }
     if (ref $seqo !~ /HASH/) { warn "seqo is not a hash reference! ($seqo)"; return }
 
-    my $seq = $seqo->seq->seq;
+    my $seq;
+    if (ref $seqo eq "Bio::Seq::RichSeq") {
+	$seq = $seqo->seq;
+    } elsif (ref $seqo eq "Bio::SeqFeatureI") {
+	$seq = $seqo->seq->seq;
+    }
     if (! $seq) { warn "No sequence in object"; return }
     my $seq_id = &load_sequences($dbh, $seq);
 
-    my $acc = $seqo->seq_id ? $seqo->seq_id :
-	$seqo->primary_id ? $seqo->primary_id : 
-	$seqo->display_name? $seqo->display_name : undef;
+    my $acc = $seqo->display_name? $seqo->display_name : 
+	$seqo->seq_id ? $seqo->seq_id :
+	$seqo->primary_id ? $seqo->primary_id : undef
+	;
     if (! defined $acc) { warn "No accession found in object"; return }
     # we should always have a primary_id
     my $source = "undetermined";
@@ -434,14 +578,20 @@ sub load_sequence_SeqFeature {
 	$source = "uid";
     }
     elsif ($acc =~ /^[A-Z]{4}\w\d{2}T[FR]/) { $source = "seq_name" }
-    elsif (defined $seqo->source_tag) { $source = $seqo->source_tag }
+#    elsif (defined $seqo->source_tag) { $source = $seqo->source_tag }
     
     my $row2 = &load_sequence_accessions($dbh, $seq_id, {$source => $acc});
     if ($row2 > 0) {
 	$fail = 1;
     }
-    
-    my $desc = $seqo->seq->description;
+
+    my $desc = "";
+    if (ref $seqo eq "Bio::Seq::RichSeq") {
+	$desc = $seqo->description;
+    } elsif (ref $seqo eq "Bio::SeqFeatureI") {
+	$desc = $seqo->seq->description;
+    }
+
     my %DESC; # holds key/value pairs inside brackets
     # NCBI: identify organism and remove from description
     if ($desc =~ /(\{\s*(.+);.*\}\s*)/) {
@@ -485,10 +635,13 @@ sub load_sequences {
     my $dbh = shift;
     my $seq = shift;
     my $len = length($seq);
-
+    my $gcseq = $seq;
+    $gcseq =~ s/[^gcsGCS]//g;
+    my $gc = sprintf "%.2f", (length($gcseq)/$len);
+    
     my $sequences_i = "INSERT sequences"
-	. " (sequence, date_inserted, inserted_by, seq_length, iscurrent)"
-	. " VALUES (\"$seq\", NOW(), USER(), $len, 1)";
+	. " (sequence, date_inserted, inserted_by, seq_length, gc, iscurrent)"
+	. " VALUES (\"$seq\", NOW(), USER(), $len, $gc, 1)";
     my $row1 = $dbh->do($sequences_i);
     if (! defined $row1) {
 	warn "Couldn't execute '$sequences_i'";
@@ -500,7 +653,6 @@ sub load_sequences {
 }
 
 sub get_sequence_by_feature_id {
-    use Bio::Perl;
     my $dbh = shift;
     my @feature_ids = @_;
 
@@ -562,10 +714,11 @@ sub get_features_by_feature_id {
     my $sequences = $dbh->selectall_hashref($prot_q, "feature_id");
     my $mq = "select m.feature_id, l.set_id, m.seq_id, feat_min, feat_max, strand,"
 	. " phase, min_partial, max_partial, pseudo, translation_coords"
-	. " FROM seq_feat_mappings m, sequences s, seq_set_link l"
+	. " FROM seq_feat_mappings m"
+	. " INNER JOIN sequences s ON s.seq_id=m.seq_id"
+	. " INNER JOIN seq_set_link l ON m.seq_id=l.seq_id"
 	. " WHERE m.feature_id in (" . join(",", @feature_ids) . ")"
-	. " AND m.seq_id=l.seq_id"
-	. " AND s.seq_id=m.seq_id AND s.iscurrent=1";
+	. " AND s.iscurrent=1";
     my $msth = $dbh->prepare($mq);
     my $r1 = $msth->execute;
     if (! defined $r1) { die "Died on \n$mq\n" }
@@ -577,8 +730,10 @@ sub get_features_by_feature_id {
 
     # grab annotation for header
     my $annotations = get_feature_annotations_by_feature_id($dbh, @feature_ids);
-#! Right now this annotation structure is different than that returned by
-#! get_seq_features_by_set_id.
+
+    #!!!! Right now this annotation structure is different than that returned by
+    #!!!! get_seq_features_by_set_id.
+
     foreach my $a(@$annotations) {
 	push @{$sequences->{$a->[0]}->{'annotation'}->{$a->[3]}->{$a->[4]}->{$a->[1]}}, $a->[2];
     }
@@ -616,11 +771,11 @@ sub get_feature_annotations_by_feature_id {
     my @feature_ids = @_;
     if (!@feature_ids) { warn "Hey! No feature_ids provided to ENV::get_features_by_feature_id!!\n"; return;}
     # grab annotation for header
-    my $annotation_q = "SELECT fa.feature_id, d.qualifier, fa.value, fa.rank, fa.source"
+    my $annotation_q = "SELECT fa.feature_id, d.qualifier, fa.value, fa.ann_rank, fa.source"
 	. " FROM feature_annotations fa, INSDC.qualifier d"
 	. " WHERE feature_id in (" . join(",",@feature_ids) . ")"
 	. " AND d.id=fa.data_type_id"
-	. " ORDER BY rank";
+	. " ORDER BY ann_rank";
     my $annotations = $dbh->selectall_arrayref($annotation_q);
     return $annotations;
 }
@@ -652,6 +807,23 @@ sub get_feature_ids_by_seq_id {
     return $dbh->selectcol_arrayref($feat_id_q);
 }
 
+sub get_feature_id_by_coords {
+    my $dbh = shift;
+    my $seq_id = shift;
+    my @coords = @_;
+    my @feat_ids;
+    
+    my $feat_id_q = "SELECT distinct feature_id"
+	. " FROM seq_feat_mappings"
+	. " WHERE seq_id = $seq_id"
+	. " AND feat_min=? AND feat_max = ? ";
+    
+    my ($min, $max) = sort {$a<=>$b} @coords;
+    my $ids = $dbh->selectcol_arrayref($feat_id_q, {}, ($min, $max));
+    if (@$ids > 1) { print STDERR "WARN: $seq_id:$coords[0]/$coords[1] returned multiple feature_ids: @$ids. Using the first.\n"; }
+    return @$ids[0];
+}
+
 # Populates seq_set_link to link seq_ids to a set_id
 sub link_seq_to_set {
     my $dbh = shift;
@@ -676,8 +848,8 @@ sub load_sequence_sets {
     my $desc = shift;
     my $ncbi_proj_id =shift;
 
-    my $sequence_sets_i = "INSERT sequence_sets (name, description, ncbi_proj_id)"
-	. " VALUES (\"$name\", \"$desc\", \"$ncbi_proj_id\")";
+    my $sequence_sets_i = "INSERT sequence_sets (name, description, ncbi_proj_id, is_current)"
+	. " VALUES (\"$name\", \"$desc\", \"$ncbi_proj_id\", 1)";
     my $row = $dbh->do($sequence_sets_i);
     if (! defined $row) {
 	warn "Couldn't execute '$sequence_sets_i'";
@@ -764,7 +936,7 @@ sub get_seq_features_by_set_id {
 	}
     }
 
-    my $nq = "select a.feature_id, qualifier, value, rank, source"
+    my $nq = "select a.feature_id, qualifier, value, ann_rank, source"
 	. " FROM feature_annotations a, seq_set_link l, seq_feat_mappings m,"
 	. " INSDC.qualifier q, sequences s"
 	. " WHERE set_id=$set_id"
@@ -843,52 +1015,12 @@ sub get_seq_features_by_set_id {
     $xsth->execute();
     while (my @rv = $xsth->fetchrow_array) {
 	if (defined $r->{$rv[0]}) {
-	    my $acc = $rv[2] ? "$rv[2]|$rv[3]" : "gnl|$rv[3]";
+	    my $acc = $rv[2] ? "$rv[2]|$rv[3]" : "$rv[3]";
 	    $r->{$rv[0]}->{'accessions'}->{$rv[1]} = $acc;
 #	$r->{$acc} = \{$r->{$rv[0]} unless (defined $r->{$acc});
 	}
     }
     return $r;
-}
-
-sub get_sequences_by_set_id {
-    my $dbh = shift;
-    my $set_id = shift;
-
-    # get sequence
-    my $sq = "select s.seq_id, sequence, seq_length, gc, category"
-	. " FROM sequences s, seq_set_link l"
-	. " WHERE set_id=$set_id"
-	. " AND s.seq_id=l.seq_id"
-	. " AND s.iscurrent=1"
-	;
-    my $seq_ref = $dbh->selectall_hashref($sq, 'seq_id');
-
-    # get sequence annotations
-    my $nq = "select a.seq_id, data_type, value"
-	. " FROM sequence_annotations a, seq_set_link l"
-	. " WHERE set_id=$set_id"
-	. " AND a.seq_id=l.seq_id";
-    my $nsth = $dbh->prepare($nq);
-    $nsth->execute();
-    while (my @rv = $nsth->fetchrow_array) {
-	push @{$seq_ref->{$rv[0]}->{'annotation'}->{$rv[1]}}, $rv[2] if (defined ($seq_ref->{$rv[0]}));
-    }
-
-    # get sequence accessions
-    my $xq = "select a.seq_id, seq_acc_source, seq_accession"
-	. " FROM sequence_accessions a, seq_set_link l"
-	. " WHERE set_id=$set_id"
-	. " AND a.seq_id=l.seq_id";
-    my $xsth = $dbh->prepare($xq);
-    $xsth->execute();
-    while (my @rv = $xsth->fetchrow_array) {
-#	my $acc = $rv[1] ? "$rv[1]|$rv[2]" : $rv[2];
-	my $acc = $rv[2];
-	push @{$seq_ref->{$rv[0]}->{'accessions'}}, $acc if (defined ($seq_ref->{$rv[0]}));
-    }
-
-    return $seq_ref;
 }
 
 sub seq_id_to_set_name {
@@ -948,8 +1080,8 @@ sub get_evidence_for_feature {
     my $feature_id = shift;
     my $ev_type = shift;
 
-    my $hmm_q = "select * from feature_evidence WHERE feature_id=$feature_id";
-    if ($ev_type) { $hmm_q .= " AND ev_type=\"$ev_type\"" }
+    my $ev_q = "SELECT * FROM feature_evidence WHERE feature_id=$feature_id";
+    if ($ev_type) { $ev_q .= " AND ev_type=\"$ev_type\"" }
 
     # [0] feature_id
     # [1] feat_min
@@ -962,7 +1094,7 @@ sub get_evidence_for_feature {
     # [8] ev_length
     # [9] score
     # [10] ev_date
-    return $dbh->selectall_arrayref($hmm_q);
+    return $dbh->selectall_arrayref($ev_q);
 }
 
 sub get_mainroles {
@@ -989,6 +1121,20 @@ sub set_id_to_seq_ids {
 	. " ORDER BY s.seq_length desc";
     my $seq_ref = $dbh->selectcol_arrayref($sq);
     return $seq_ref;
+}
+
+sub seq_id_to_set_id {
+    my $dbh = shift;
+    my $seq_id = shift;
+
+    my $sq = "select l.set_id"
+	. " FROM seq_set_link l, sequence_sets ss"
+	. " WHERE seq_id=$seq_id"
+	. " AND ss.set_id=l.set_id"
+	. " AND ss.is_current=1";
+
+    my ($set_id) = $dbh->selectrow_array($sq);
+    return $set_id;
 }
 
 sub seq_id_to_SeqObj {
@@ -1121,11 +1267,36 @@ sub add_features_to_SeqObj {
 	my @ranks = sort {$a<=>$b} keys %{$featr->{'annotation'}};
 	# to only pull annotation from best rank:
 	foreach my $source (keys %{$featr->{'annotation'}->{$ranks[0]}}) {
-	    foreach my $ tag (keys %{$featr->{'annotation'}->{$ranks[0]}->{$source}}) {
+	    foreach my $tag (keys %{$featr->{'annotation'}->{$ranks[0]}->{$source}}) {
 		$FeatObj->add_tag_value($tag, @{$featr->{'annotation'}->{$ranks[0]}->{$source}->{$tag}});
 	    }
 	}
 
+	# evidence - add families as db_xref tags
+	my $ev_ref = get_evidence_for_feature($dbh, $feat_id);
+	foreach my $ev_row(@$ev_ref) {
+	    my $evacc = $ev_row->[5];
+	    my $value;
+	    if ($ev_row->[4] eq "HMM") {
+		if ($evacc =~ /^TIGR/) {
+		    $value = "TIGRFAM:" . $evacc;
+		} elsif ($evacc =~ /^PF/) {
+		    $value = "PFAM:" . $evacc;
+		}
+	    } elsif ($ev_row->[4] eq "KO") {
+		$value = "KO:" . $evacc;
+	    } elsif ($ev_row->[4] eq "CAZy") {
+		$evacc =~ s/\.hmm$//; # sometimes .hmm is at the end of the CAZy family
+		$value = "CAZy:" . $evacc;
+	    } elsif ($ev_row->[4] eq "SEED") {
+		$value = "SEED:" . $evacc;
+	    }
+	    if ($value) {
+		$FeatObj->add_tag_value('db_xref', $value);
+	    }
+	}
+
+	
 	# location
 	my $LocObj;
 	my $tcoords = $featr->{'location'}->{$seq_id}->{'translation_coords'};
@@ -1149,15 +1320,22 @@ sub add_features_to_SeqObj {
 	$FeatObj->location($LocObj);
 	$FeatObj->frame($featr->{'location'}->{$seq_id}->{'phase'}) if ($featr->{'location'}->{$seq_id}->{'phase'} =~ /\d/);
 	
-	# accessions as protein_ids
-	my $locus = defined $featr->{'accessions'}->{'locus_tag'} ? $featr->{'accessions'}->{'locus_tag'}->[0] : 
-	    defined $featr->{'accessions'}->{'PNNL'} ? $featr->{'accessions'}->{'PNNL'}->[0] : "";
-	$FeatObj->add_tag_value('locus_tag', $locus) if ($locus);
+	# accessions as locus_tags and old_locus_tags
+	for my $accType(keys %{$featr->{'accessions'}}) {
+	    my $acc_ary = $featr->{'accessions'}->{$accType};
+	    if ($accType eq "locus_tag") {
+		$FeatObj->add_tag_value('locus_tag', $acc_ary->[0]);
+	    } else {
+		foreach my $acc (@$acc_ary) {
+		    $FeatObj->add_tag_value('old_locus_tag', $acc);
+		}
+	    }
+	}
 
 	if ($featr->{'feat_type'} eq 'CDS') {
 	    &add_Gene_feature($SeqObj, $featr, $LocObj);
 	}
-
+	
 	# Finally, add FeatObj to SeqObj
 	$SeqObj->add_SeqFeature($FeatObj);
     }
@@ -1342,6 +1520,105 @@ sub set_name_to_set_id {
     if (@$r == 0) { carp "No set_id found for '$set_name'.\n"; return; }
     elsif (@$r > 1) { carp "Multiple set_ids for '$set_name'. Returning " . $r->[0] . "\n"; }
     return $r->[0];
+}
+
+sub max_locus_tag {
+    my $dbh = shift;
+    my $set_id = shift;
+    my $q = "select max(a.accession) from feature_accessions a, seq_feat_mappings m, seq_set_link l,"
+	. " sequences s"
+	. " where source=\"locus_tag\" and m.feature_id=a.feature_id and m.seq_id=l.seq_id"
+	. " and l.set_id=$set_id"
+	. " and s.seq_id=l.seq_id and s.iscurrent=1";
+    my ($r) = $dbh->selectrow_array($q);
+    if ($r) { return $r }
+    else { return 0 }
+}
+
+sub set_ids {
+    my $dbh = shift;
+    my $query = "SELECT set_id FROM sequence_sets where is_current=1";
+    my $r = $dbh->selectcol_arrayref($query);
+    if (@$r == 0) { carp "No set_ids found.\n"; return; }
+    return @$r;    
+}
+
+sub parse_product_string {
+    my $feato = shift;
+
+    my @EC;
+    my @TC;
+    my @gene_sym;
+    
+    if ($feato->has_tag('product')) {
+	foreach my $prod ($feato->get_tag_values('product')) {
+
+    # RAST/SEED annotation embeds EC, TC and gene_sym information
+    # EC info looks like "(EC 1.1.1.1)" only one EC per annotation, but a gene may have multiple
+    # annotations delimited by a ';'
+    # should check EC format with a regex, but lazy.
+	    while ($prod =~ /(\s*\(EC (\S+)\))/g) {
+		push @EC, $2;
+	    }
+	    $prod =~ s/(\s*\(EC (\S+)\))//g;
+	    
+	    while ($prod =~ /(\s*\(TC (\S+)\))/g) {
+		push @TC, $2;
+	    }
+	    $prod =~ s/(\s*\(TC (\S+)\))//g;
+	    
+	    while ($prod =~ /\b([A-Z][a-z]{2}[A-Z])\b/g) {
+		my $sym = $2;
+		$sym =~ tr/^[A-Z]/[a-z]/;
+		push @gene_sym, $sym;
+	    }
+	}
+	for my $ec (@EC) {
+	    $feato->add_tag_value('EC_number', $ec);
+	}
+	for my $tc (@TC) {
+	    $feato->add_tag_value('TC_number', $tc);
+	}
+	for my $gene (@gene_sym) {
+	    $feato->add_tag_value('gene', $gene);
+	}
+    }
+}
+
+sub kv_to_AnnotationObj {
+    my $SeqObj = shift;
+    my $kvref = shift;
+    for my $rv(@$kvref) {
+        my $AnnObj;
+        if ($rv->[0] eq 'comment') {
+            $AnnObj = Bio::Annotation::Comment->new(-text => $rv->[1]);
+        } elsif ($rv->[0] eq 'dblink') {
+            my ($db, $id) = split/\:/, $rv->[1];
+            $AnnObj = Bio::Annotation::DBLink->new(-database => $db,
+                            -primary_id => $id);
+        } elsif ($rv->[0] eq 'ontology_term') {
+            my ($ontology, $term) = split/\:/, $rv->[1];
+            $AnnObj = Bio::Annotation::OntologyTerm->new(-term => $term,
+                                -tagname => $ontology);
+        } elsif ($rv->[0] eq 'reference') {
+            my ($medline, $pubmed, $title, $authors, $location, $start, $end, $rp_line, $rg_line);
+            $AnnObj = Bio::Annotation::Reference->new(-medline => $medline,
+                                -pubmed => $pubmed,
+                                -title => $title,
+                                -authors => $authors,
+                                -location => $location,
+                                -start => $start,
+                                -end => $end,
+                                -rp => $rp_line,
+                                -rg => $rg_line);
+        } elsif ($rv->[0] eq 'description') {
+            $SeqObj->description($rv->[1]);
+        } else {
+            $AnnObj = Bio::Annotation::SimpleValue->new(-value => $rv->[1],
+                                -tagname => $rv->[0]);
+        }
+        $SeqObj->add_Annotation($AnnObj) if (defined $AnnObj);
+    }
 }
 
 our %PSEUDOKEY = ( 1 => 'singleFS',

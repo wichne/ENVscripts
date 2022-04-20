@@ -79,6 +79,7 @@ while (my $seqrec = $in->next_seq) {
  #   }
 
     #============== The Features ============================#
+    my $index = 0;
     foreach my $feature (@features) {
 	my $feat_type = $feature->primary_tag();
 	# Don't load the sequence as a feature
@@ -94,82 +95,50 @@ while (my $seqrec = $in->next_seq) {
 	}
 	my $FT_coords = $feature->location->to_FTstring;
 
-	# Get an accession from the tags
-	my @tags = $feature->get_all_tags();
-	my ($locus_tag, $max_partial, $min_partial);
-	foreach my $tag (@tags) {
-	    my @values = $feature->get_tag_values($tag);
-	    if ($tag eq "locus_tag") { $locus_tag = $values[0] }
-	    if ($tag eq "partial") {
-		$min_partial = $values[0] & 10 ? 1 : 0;
-		$max_partial = $values[0] & 01 ? 1 : 0;
-	    }
-	}
-
+	# look for feature by coords
 	my $feat_r;
-	if (! $locus_tag) { $locus_tag = "NEW" . $feature->primary_tag . "$min"; }
-	else {
-	    # look for existing feature
-	    # first by accession...
-	    my $acc_q = "SELECT feature_id from feature_accessions where accession = \"$locus_tag\"";
-	    $feat_r = $dbh->selectcol_arrayref($acc_q);
-	}
-	
-	# ...then by coords
-	if (! @$feat_r) {
-	    my $coords_q = "SELECT sfm.feature_id FROM seq_feat_mappings sfm, sequence_features f"
-		. " WHERE seq_id = $seq_id"
-		. " AND strand = \"$strand\""
-#		. " AND (($min >= sfm.feat_min AND $min <= sfm.feat_max)"
-#		. " OR ($max >= sfm.feat_min AND $max <= sfm.feat_max)"
-#		. " OR ($min <= sfm.feat_min AND $max >= sfm.feat_max))"
-		. " AND ($min = sfm.feat_min OR $max = sfm.feat_max)"
-		. " AND f.feature_id=sfm.feature_id and f.feat_type = \"$feat_type\"";
-	    $feat_r = $dbh->selectcol_arrayref($coords_q);
-	}
+	my $coords_q = "SELECT sfm.feature_id FROM seq_feat_mappings sfm, sequence_features f"
+	    . " WHERE seq_id = $seq_id"
+	    . " AND strand = \"$strand\""
+	    . " AND ($min = sfm.feat_min OR $max = sfm.feat_max)"
+	    . " AND f.feature_id=sfm.feature_id and f.feat_type = \"$feat_type\"";
+	$feat_r = $dbh->selectcol_arrayref($coords_q);
 	
 	# if the feature is in the db
 	if (@$feat_r) {
 	    foreach my $fid (@$feat_r) {
-		if ($DONE{$fid}) { print "feature $fid has already been updated. Must have conflicting coordinates. Please check this one manually.\n"; next; }
-		my $featr = get_features_by_feature_id($dbh, $fid);
-		# Only update if the information differs
-		$DONE{$fid} = 1;
-		if ($featr->{$fid}->{'location'}->{$seq_id}->{'feat_min'} != $min ||
-		    $featr->{$fid}->{'location'}->{$seq_id}->{'feat_max'} != $max ||
-		    $featr->{$fid}->{'location'}->{$seq_id}->{'strand'} != $strand ||
-		    $featr->{$fid}->{'location'}->{$seq_id}->{'min_partial'} != $min_partial ||
-		    $featr->{$fid}->{'location'}->{$seq_id}->{'max_partial'} != $max_partial) {
-		    print "Update $fid $locus_tag from " . 
-			$featr->{$fid}->{'location'}->{$seq_id}->{'feat_min'} . " / " .
-			$featr->{$fid}->{'location'}->{$seq_id}->{'feat_max'} .
-			" to $min/$max ($FT_coords)\n";
-		    update_feature_mapping($dbh, $seq_id, $fid, {'feat_min'    => $min,
-								 'feat_max'    => $max,
-								 'strand'      => $strand,
-		                                                 'translation_coords' => $FT_coords,
-								 'min_partial' => $min_partial,
-								 'max_partial' => $max_partial});
+		# Get accessions from the tags
+		my @tags = $feature->get_all_tags();
+		foreach my $tag (@tags) {
+		    my @values = $feature->get_tag_values($tag);
+		    foreach my $value (@values) {
+			if ($value =~ /^GO/) { next }
+			if ($tag eq "locus_tag") {
+			    insert_feature_accessions($dbh, $fid, $value, $source);
+			} elsif ($tag eq "db_xref") {
+			    my @acc = split(/\|/, $value);
+			    if (@acc == 1) {
+				insert_feature_accessions($dbh, $fid, $acc[0], $source);
+			    } elsif (@acc > 1) {
+				my $pfx = shift @acc;
+				foreach my $acc(@acc) {
+				    insert_feature_accessions($dbh, $fid, $acc, $source, $pfx);
+				}
+			    }
+			}
+		    }
 		}
-		if ($feature->annotation->get_all_annotation_keys) {
-		    &delete_feature_annotations($dbh, $fid, {'source' => $source});
-		    &load_feature_annotations($dbh, $fid, $feature->annotation, $source, 10);
+		if ($locus_prefix) {
+		    $locus_tag = sprintf "${locus_prefix}_%05d", ++$index;
+		    insert_feature_accessions($dbh, $fid, $locus_tag, "PNNL");
 		}
-
 	    }
 	}
-	# Otherwise must insert the new information
+	
 	else {
-	    my $feat_id = &load_SeqFeature($dbh, $seq_id, $feature, $dbseqobj, undef, $source);
-	    print "inserted $feat_id " . $locus_tag . " at " . $feature->start . " / " . $feature->end . "\n";
-	    if ($feature->annotation->get_all_annotation_keys) {
-		&load_feature_annotations($dbh, $feat_id, $feature->annotation, $source, 10);
-	    }
-	    $DONE{$feat_id} = 1;
+	    warn "Can't find  $seq_id $strand $min $max\n";
 	}
     }
 }
-
-print "\n";
 exit();
 

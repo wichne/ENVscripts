@@ -26,13 +26,16 @@ while (my $line = <$IN>) {
     my $featobj = ;
     my $fid = load_SeqFeature($dbh, $sid, $featobj, $seqobj, $SO_term);
 
-    my $annobj = Bio::Annotation::Collection->new();
-    foreach my $key("product", "gene", "EC_number") {
-	if (defined $ref->{$key}) {
-	    my $sv = Bio::Annotation::SimpleValue->new(-value=>$ref->{$key});
-	    $annObj->add_Annotation($key, $sv);
+    if ($annotation) {
+	my $annobj = Bio::Annotation::Collection->new();
+	# need something here to parse the annotation string
+	
+	foreach my $key("product", "gene", "EC_number") {
+	    if (defined $ref->{$key}) {
+		my $sv = Bio::Annotation::SimpleValue->new(-value=>$ref->{$key});
+		$annObj->add_Annotation($key, $sv);
+	    }
 	}
+	load_feature_annotations($dbh, $feature_id, $annObj);
     }
-    delete_feature_annotations($dbh, $feature_id);
-    load_feature_annotations($dbh, $feature_id, $annObj);
 }

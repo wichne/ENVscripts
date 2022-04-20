@@ -3,7 +3,7 @@
 # This script is used to generate flatfiles of either
 # all sequence_sets in the ENV database chosen,
 # or a specified list
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use Getopt::Long;
 
@@ -18,7 +18,7 @@ If no path is specified, files written to current directory.
 	    "path=s" => \$dest_path);
 
 my $dbh = &connect({ 'u' => 'access',
-		     'p' => 'access',
+		     'p' => 'mySQL@cce55',
 		     'D' => $db } );
 
 @set_names = split(/,/,join(',',@set_names));
@@ -54,12 +54,12 @@ foreach my $name (@set_names) {
     }
 
     
-    $contig_cmd = "$ENV{SCRIPTS}/set_to_fasta.pl -D $db -n $name -o $path/$name.fasta";
-    $pep_cmd    = "$ENV{SCRIPTS}/set_to_pep.pl -D $db -n $name -o $path/$name.pep";
-    $seq_cmd    = "$ENV{SCRIPTS}/set_to_seq.pl -D $db -n $name -o $path/$name.seq -A locus_tag -a";
-    $gff_cmd    = "$ENV{SCRIPTS}/set_to_gff.pl -D $db -n $name -o $path/$name.gff";
-    $gbf_cmd    = "$ENV{SCRIPTS}/set_to_gbf.pl -D $db -n $name -o $path/$name.gbf";
-    $csv_cmd    = "$ENV{SCRIPTS}/set_to_annotation_table.pl -D $db -n $name -o $path/$name.csv";
+    $contig_cmd = "$ENV{ENVSCRIPTS}/set_to_fasta.pl -D $db -n $name -o $path/$name.fasta";
+    $pep_cmd    = "$ENV{ENVSCRIPTS}/set_to_pep.pl -D $db -n $name -o $path/$name.pep";
+    $seq_cmd    = "$ENV{ENVSCRIPTS}/set_to_seq.pl -D $db -n $name -o $path/$name.seq -A locus_tag -a";
+    $gff_cmd    = "$ENV{ENVSCRIPTS}/set_to_gff.pl -D $db -n $name -o $path/$name.gff";
+    $gbf_cmd    = "$ENV{ENVSCRIPTS}/set_to_gbf.pl -D $db -n $name -o $path/$name.gbf";
+    $csv_cmd    = "$ENV{ENVSCRIPTS}/set_to_annotation_table.pl -D $db -n $name -o $path/$name.csv";
 
     print "$contig_cmd\n";
     my $r = system($contig_cmd);

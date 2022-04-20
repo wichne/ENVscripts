@@ -6,24 +6,33 @@ use Bio::Seq;
 use Getopt::Std;
 use Data::Dumper;
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 
 my $args = {};
-&getopts('f:F:D:P:s:h', $args);
+&getopts('f:F:D:p:i:h', $args);
 
 if ($args->{h}) { die "-f file\n-F format\n-D database\n-P password\n-sset_id\n-h [print this]\n"; }
 
 my $filename = $args->{'f'} or die "Need to provide filename with -f\n";
 my $database = $args->{'D'} or die "Need to provide database with -D\n";
-my $password = $args->{'P'} or die "Need to provide password with -P\n";
+my $password = $args->{'p'} or die "Need to provide password with -p\n";
 my $format = $args->{'F'};
-my $set_id = $args->{'s'};
+my $set_id = $args->{'i'};
 
 my $in = Bio::SeqIO->new(-file => $filename);
 
 my $dbh = &connect($args);
 
+if (! $set_id) {
+    # see if the file prefix is the sequence_sets.name
+    if ($filename =~ /(.*)\.[^\.]+$/) {
+	my $qname = $1;
+	warn("Looking for set_id based on '$qname'...");
+        $set_id = set_name_to_id($dbh, $qname);
+	if (! $set_id) { die "No set_id and provided and can't find one based on input filename.\n"; } else { warn("\tFound set_id $set_id!");}
+    }
+}
 while (my $seqo = $in->next_seq) {
     my $seq_id;
 #    if ($seqo->length >= 2000) {

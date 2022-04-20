@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
@@ -14,13 +14,14 @@ my $setid = $opt->{i};
 my $setname = $opt->{n};
 my $outfile = $opt->{o};;
 my $seqid = $opt->{s};
-my $split = $opt->{S};
+my $split = $opt->{S}; # for multiple seq_ids to have each in its own file
 
 my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
-my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'access');
+my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'mySQL@cce55');
 
 #my $setref = &get_seq_sets($dbh);
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
+if (! $setid) { die "Couldn't get set_id from '$setname'\n"; }
 
 my $OUT;
 if ($outfile && !$split) {

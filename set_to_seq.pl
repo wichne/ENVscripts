@@ -2,36 +2,41 @@
 
 #Edited by Jen 05/08/2015 to change sequence identifier to database,feature id and organism 
 
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
 use Bio::SeqIO;
 use Data::Dumper qw(Dumper);
 
-&getopts('D:i:n:o:');
+&getopts('D:i:n:o:O');
 my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
-my $dbh = DBI->connect("dbi:mysql:host=$host;db=$opt_D", 'access', 'access');
+my $dbh = DBI->connect("dbi:mysql:host=$host;db=$opt_D", 'access', 'mySQL@cce55');
 
 my $setid = $opt_i;
 my $setname = $opt_n;
-my $outfh;
-if ($opt_o) {
-    $outfh = Bio::SeqIO->new(-file => ">$opt_o",
-			     -format => 'fasta');
-} else {
-    $outfh = Bio::SeqIO->new(-fh => \*STDOUT,
-			     -format => 'fasta');
-}
 
 #my $setref = &get_seq_sets($dbh);
 if ($setname && !$setid) { $setid = &set_name_to_id($dbh, $setname); }
+if ($setid && !$setname) { $setname = &set_id_to_set_name($dbh, $setid); }
 
 if (! $setid) { die "Can't get setid\n"; }
 
 my $protref = &get_seq_features_by_set_id($dbh, $setid);
 my $seqids = &set_id_to_seq_ids($dbh, $setid);
 our $SEQ = &get_sequence_by_seq_id($dbh, @$seqids);
+
+my $outfh;
+if ($opt_o) {
+    $outfh = Bio::SeqIO->new(-file => ">$opt_o",
+			     -format => 'fasta');
+} elsif ($opt_O) {
+    $outfh = Bio::SeqIO->new(-file => ">${setname}.seq",
+			     -format => 'fasta');
+} else {
+    $outfh = Bio::SeqIO->new(-fh => \*STDOUT,
+			     -format => 'fasta');
+}
 
 foreach my $fid (sort {
     $protref->{$a}->{'location'}->{'seq_id'} <=> $protref->{$b}->{'location'}->{'seq_id'} ||

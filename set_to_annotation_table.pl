@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 use ENV;
 use DBI;
 use Getopt::Std;
@@ -15,7 +15,7 @@ my $setname = $opt->{n};
 my $outfile = $opt->{o};
 
 my $host = $ENV{DBSERVER} ? $ENV{DBSERVER} : 'localhost';
-my $dbh = DBI->connect("dbi:mysql:host=$host;db=$db", 'access', 'access');
+my $dbh = connect($opt);
 
 
 my $OUT;
