@@ -1,0 +1,9 @@
+# commands to load genomes from genome fasta, annotation gff files
+# Example based off files downloaded from NCBI genomes in RefSeq format
+
+# first you must load the sequences
+# loading the fasta files directly, the set (genome) will be named after the file, which is not optimal
+for f in *genomic.fna.gz; do gunzip $f; /projects/perlscripts/ENV/load_fasta_to_ENVDB.pl -D Pseudomonas -p RenMan -f ${f/.gz/}; done
+
+Next, load the gff.
+for f in *genomic.gff; do /projects/perlscripts/ENV/load_gff_to_ENV.pl -D Pseudomonas -p RenMan -g $f -f ${f/gff/fna} -s RefSeq; done

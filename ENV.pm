@@ -9,7 +9,16 @@ use strict;
 use vars qw (@ISA @EXPORT);
 use DBI;
 @ISA = qw(Exporter);
-@EXPORT = qw(connect get_sequences load_SeqFeature load_Sequence load_feature_annotations delete_feature_annotations get_sequence_by_feature_id get_accession_by_seq_id get_feature_ids_by_seq_id get_features_by_feature_id get_sequence_by_seq_id get_seq_id_by_seq_accession link_seq_to_set get_seq_sets load_sequence_sets load_PrimarySeq load_sequence_SeqFeature load_sequences load_sequence_accessions load_sequence_annotations get_sequence_by_accession set_name_to_id get_seq_features_by_set_id get_sequences_by_set_id get_feature_id_by_accession get_mainroles get_subroles set_id_to_seq_ids seq_id_to_SeqObj add_features_to_SeqObj get_evidence_for_feature get_ev_role_by_feature_id get_accession_by_feature_id get_features_by_seq_id load_seq_feat_mappings set_id_to_set_name get_locus_tag_by_feature_id get_set_names seq_id_to_set_name is_current update_product insert_feature_accessions update_feature_mapping set_name_to_set_id get_feature_id_by_coords max_locus_tag seq_id_to_set_id delete_feature_evidence protein_from_coords set_ids);
+@EXPORT = qw(connect get_sequences load_SeqFeature load_Sequence load_feature_annotations delete_feature_annotations 
+    get_sequence_by_feature_id get_accession_by_seq_id get_feature_ids_by_seq_id get_features_by_feature_id 
+    get_sequence_by_seq_id get_seq_id_by_seq_accession link_seq_to_set get_seq_sets load_sequence_sets load_PrimarySeq 
+    load_sequence_SeqFeature load_sequences load_sequence_accessions load_sequence_annotations get_sequence_by_accession 
+    set_name_to_id get_seq_features_by_set_id get_sequences_by_set_id get_feature_id_by_accession get_mainroles 
+    get_subroles set_id_to_seq_ids seq_id_to_SeqObj add_features_to_SeqObj get_evidence_for_feature 
+    get_ev_role_by_feature_id get_accession_by_feature_id get_features_by_seq_id load_seq_feat_mappings 
+    set_id_to_set_name get_locus_tag_by_feature_id get_set_names seq_id_to_set_name is_current update_product 
+    insert_feature_accessions update_feature_mapping set_name_to_set_id get_feature_id_by_coords max_locus_tag 
+    seq_id_to_set_id delete_feature_evidence protein_from_coords set_ids delete_sequence_features);
 
 sub connect {
     my $argref = shift;
@@ -412,6 +421,49 @@ sub protein_from_coords {
     return ($protobj);
 }
 
+sub delete_sequence_features {
+    my $dbh = shift;
+    my @feat_id = @_;
+
+    my $ortho_d = "DELETE FROM ortho_group WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $proteomics_d = "DELETE FROM proteomics_data WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $feature_accessions_d = "DELETE FROM feature_accessions"
+	. " WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $feature_annotations_d = "DELETE FROM feature_accessions"
+	. " WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $feature_evidence_d = "DELETE FROM feature_evidence"
+	. " WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $seq_feat_mapping_d = "DELETE FROM seq_feat_mappings m WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $feature_d = "DELETE FROM sequence_features WHERE feature_id IN (" . join(",", @feat_id) . ")";
+    my $transcriptomics_d = "DELETE FROM transcriptomics_data WHERE feature_id IN (" . join(",", @feat_id) . ")";
+
+    for my $q ($ortho_d,  $transcriptomics_d, $proteomics_d, $feature_annotations_d,
+               $feature_accessions_d, $feature_evidence_d, $seq_feat_mapping_d, $feature_d) {
+        my $d = $dbh->do($q);
+        if (! defined $d) {
+	        warn "Couldn't execute '$q'";
+        }
+    }
+}
+
+sub delete_feature_accessions {
+    my $dbh = shift;
+    my $feat_id = shift;
+    my $cond_ref = shift;
+    my $feature_accessions_d = "DELETE FROM feature_accessions"
+	. " WHERE feature_id=$feat_id";
+    if (%$cond_ref) {
+	foreach my $cond(keys %$cond_ref) {
+	    $feature_accessions_d .= " AND $cond = \'$cond_ref->{$cond}\'";
+	}
+    }
+    my $d = $dbh->do($feature_accessions_d);
+    if (! defined $d) {
+	warn "Couldn't execute '$feature_accessions_d'";
+	return;
+    }
+}
+
 sub delete_feature_annotations {
     my $dbh = shift;
     my $feat_id = shift;
@@ -451,7 +503,8 @@ sub delete_feature_evidence {
 sub load_feature_annotations {
     my $dbh = shift;
     my $feat_id = shift;
-    my $annObj = shift;
+    my $featObj = shift;
+    my $annObj = $featObj->annotation;
     my $source = shift;
     my $rank = shift;
 
@@ -461,19 +514,59 @@ sub load_feature_annotations {
 	. " FROM INSDC.qualifier d"
 	. " WHERE d.qualifier=?";
 
-    foreach my $data_type ($annObj->get_all_annotation_keys()) {
-	my @values = $annObj->get_Annotations($data_type);
-	for (my $i = 0; $i < @values; $i++) {
-	    if ($values[$i]->value eq "") { next }
-	    if ($data_type eq "db_xref") {
-		my ($type, $value) = split/\:/, $values[$i]->value;
-		$dbh->do($feature_annotation_i, {}, ($value, 0, $type, $source)) or warn $DBI::errstr;
-	    } else {
-		if (! $rank) { $rank = 9 }
-		$dbh->do($feature_annotation_i, {}, ($values[$i]->value, $rank, $source, $data_type)) or warn $DBI::errstr;
-	    }
-	}
-    }	    
+    if ($annObj->get_all_annotation_keys) {
+        foreach my $data_type ($annObj->get_all_annotation_keys()) {
+            my @values = $annObj->get_Annotations($data_type);
+            for (my $i = 0; $i < @values; $i++) {
+                if ($values[$i]->value eq "") { next }
+                if ($data_type eq "db_xref") {
+                    my ($type, $value) = split/\:/, $values[$i]->value;
+                    $dbh->do($feature_annotation_i, {}, ($value, 0, $type, $source)) or warn $DBI::errstr;
+                } else {
+                    if (! $rank) { $rank = 9 }
+                    $dbh->do($feature_annotation_i, {}, ($values[$i]->value, $rank, $source, $data_type)) or warn $DBI::errstr;
+                }
+            }
+        }
+    } else {
+        my @all_tags = $featObj->get_all_tags;
+        foreach my $tag(@all_tags) {
+            if ($tag =~ /^product$/) {
+                my $feat_ann_i = "INSERT feature_annotations"
+                . " (feature_id, data_type_id, value, source, ann_rank)"
+                . " VALUES ($feat_id, 66, \"" . [$featObj->get_tag_values('product')]->[0] . "\", \"$source\", 10)";
+                my $row4 = $dbh->do($feat_ann_i);
+                if (! defined $row4) { print STDERR "$feat_ann_i\n" }
+            }
+
+            elsif ($tag =~ /^gene$/) {
+                my $gene = [$featObj->get_tag_values('gene')]->[0];
+                my $feat_ann_i = "INSERT feature_annotations"
+                    . " (feature_id, data_type_id, value, source, ann_rank)"
+                    . " VALUES ($feat_id, 35, \"$gene\", \"$source\", 10)";
+                my $row4 = $dbh->do($feat_ann_i);
+                if (! defined $row4) { print STDERR "$feat_ann_i\n" }
+            }
+
+            elsif ($tag =~ /^(EC(_number)?)$/) {
+                my $t = $1;
+                foreach my $ec ($featObj->get_tag_values($t)) {
+                    my $feat_ann_i = "INSERT feature_annotations"
+                        . " (feature_id, data_type_id, value, source, ann_rank)"
+                        . " VALUES ($feat_id, 1, \"$ec\", \"$source\", 10)";
+                    my $row4 = $dbh->do($feat_ann_i);
+                    if (! defined $row4) { print STDERR "$feat_ann_i\n" }
+                }
+            }
+            elsif ($tag =~ /^sso$/i) { # KBase SEED sequence ortholog
+                my $feat_ann_i = "INSERT feature_annotations"
+                    . " (feature_id, data_type_id, value, source, ann_rank)"
+                    . " VALUES ($feat_id, 23, \"" . [$featObj->get_tag_values('sso')]->[0] . "\", \"$source\", 10)";
+                my $row4 = $dbh->do($feat_ann_i);
+                if (! defined $row4) { print STDERR "$feat_ann_i\n" }
+            }
+        }
+    }   
 }
 
 sub load_PrimarySeq {
@@ -810,17 +903,25 @@ sub get_feature_ids_by_seq_id {
 sub get_feature_id_by_coords {
     my $dbh = shift;
     my $seq_id = shift;
-    my @coords = @_;
+    my $feat_type = shift;
+    my ($strand, $start, $end) = @_;
     my @feat_ids;
     
-    my $feat_id_q = "SELECT distinct feature_id"
-	. " FROM seq_feat_mappings"
-	. " WHERE seq_id = $seq_id"
-	. " AND feat_min=? AND feat_max = ? ";
+#    my $feat_id_q = "SELECT distinct feature_id"
+#	. " FROM seq_feat_mappings"
+#	. " WHERE seq_id = $seq_id"
+#	. " AND feat_min=? AND feat_max = ? ";
+    my $feat_id_q = "SELECT distinct sfm.feature_id FROM seq_feat_mappings sfm, sequence_features f"
+    . " WHERE seq_id = $seq_id"
+    . " AND strand = ?"
+    . " AND (sfm.feat_min = ? OR sfm.feat_max = ?)"
+    . " AND f.feature_id=sfm.feature_id and f.feat_type = \"$feat_type\"";
     
-    my ($min, $max) = sort {$a<=>$b} @coords;
-    my $ids = $dbh->selectcol_arrayref($feat_id_q, {}, ($min, $max));
-    if (@$ids > 1) { print STDERR "WARN: $seq_id:$coords[0]/$coords[1] returned multiple feature_ids: @$ids. Using the first.\n"; }
+    my ($min, $max) = sort {$a <=> $b } ($start, $end);
+
+    my $ids = $dbh->selectcol_arrayref($feat_id_q, {}, ($strand, $min, $max));
+    if (@$ids > 1) { print STDERR "WARN: $seq_id:$start/$end returned multiple feature_ids: @$ids. Using the first.\n"; }
+    
     return @$ids[0];
 }
 
@@ -1225,119 +1326,118 @@ sub add_features_to_SeqObj {
     my $feat_ref = &get_features_by_feature_id($dbh, @$feat_id_a);
     
     foreach my $feat_id (sort {$feat_ref->{$a}->{'location'}->{$seq_id}->{'feat_min'} <=>
-				   $feat_ref->{$b}->{'location'}->{$seq_id}->{'feat_min'} }
-			 keys %$feat_ref) {
-	my $featr = $feat_ref->{$feat_id};
+				    $feat_ref->{$b}->{'location'}->{$seq_id}->{'feat_min'} }
+			        keys %$feat_ref) {
+    	my $featr = $feat_ref->{$feat_id};
 
-	my $FeatObj = new Bio::SeqFeature::Generic;
-	$FeatObj->primary_tag($featr->{'feat_type'});
-	$FeatObj->add_tag_value('translation', $featr->{'product'}) if ($featr->{'product'});
+        my $FeatObj = new Bio::SeqFeature::Generic;
+        $FeatObj->primary_tag($featr->{'feat_type'});
+        $FeatObj->add_tag_value('translation', $featr->{'product'}) if ($featr->{'product'});
 
-	### Valid qualifiers for CDS
-#	/allele="text"
-#	/artificial_location="[artificial_location_value]"
-#	/citation=[number]
-#	/codon_start=<1 or 2 or 3>
-#       /db_xref="<database>:<identifier>"
-#       /EC_number="text"
-#       /exception="[exception_value]"
-#       /experiment="[CATEGORY:]text"
-#       /function="text"
-#       /gene="text"
-#       /gene_synonym="text"
-#	/inference="[CATEGORY:]TYPE[ (same species)][:EVIDENCE_BASIS]"
-#	/locus_tag="text" (single token)
-#	/map="text"
-#	/note="text"
-#	/number=unquoted text (single token)
-#	/old_locus_tag="text" (single token)
-#	/operon="text"
-#	/product="text"
-#	/protein_id="<identifier>"
-#	/pseudo
-#	/pseudogene="TYPE"
-#	/ribosomal_slippage
-#	/standard_name="text"
-#	/translation="text"
-#	/transl_except=(pos:<base_range>,aa:<amino_acid>)
-#	/transl_table =<integer>
-#	/trans_splicing
+        ### Valid qualifiers for CDS
+    #	/allele="text"
+    #	/artificial_location="[artificial_location_value]"
+    #	/citation=[number]
+    #	/codon_start=<1 or 2 or 3>
+    #       /db_xref="<database>:<identifier>"
+    #       /EC_number="text"
+    #       /exception="[exception_value]"
+    #       /experiment="[CATEGORY:]text"
+    #       /function="text"
+    #       /gene="text"
+    #       /gene_synonym="text"
+    #	/inference="[CATEGORY:]TYPE[ (same species)][:EVIDENCE_BASIS]"
+    #	/locus_tag="text" (single token)
+    #	/map="text"
+    #	/note="text"
+    #	/number=unquoted text (single token)
+    #	/old_locus_tag="text" (single token)
+    #	/operon="text"
+    #	/product="text"
+    #	/protein_id="<identifier>"
+    #	/pseudo
+    #	/pseudogene="TYPE"
+    #	/ribosomal_slippage
+    #	/standard_name="text"
+    #	/translation="text"
+    #	/transl_except=(pos:<base_range>,aa:<amino_acid>)
+    #	/transl_table =<integer>
+    #	/trans_splicing
 
-	# annotations
-	my @ranks = sort {$a<=>$b} keys %{$featr->{'annotation'}};
-	# to only pull annotation from best rank:
-	foreach my $source (keys %{$featr->{'annotation'}->{$ranks[0]}}) {
-	    foreach my $tag (keys %{$featr->{'annotation'}->{$ranks[0]}->{$source}}) {
-		$FeatObj->add_tag_value($tag, @{$featr->{'annotation'}->{$ranks[0]}->{$source}->{$tag}});
-	    }
-	}
+        # annotations
+        my @ranks = sort {$a<=>$b} keys %{$featr->{'annotation'}};
+        # to only pull annotation from best rank:
+        foreach my $source (keys %{$featr->{'annotation'}->{$ranks[0]}}) {
+            foreach my $tag (keys %{$featr->{'annotation'}->{$ranks[0]}->{$source}}) {
+                $FeatObj->add_tag_value($tag, @{$featr->{'annotation'}->{$ranks[0]}->{$source}->{$tag}});
+            }
+        }
 
-	# evidence - add families as db_xref tags
-	my $ev_ref = get_evidence_for_feature($dbh, $feat_id);
-	foreach my $ev_row(@$ev_ref) {
-	    my $evacc = $ev_row->[5];
-	    my $value;
-	    if ($ev_row->[4] eq "HMM") {
-		if ($evacc =~ /^TIGR/) {
-		    $value = "TIGRFAM:" . $evacc;
-		} elsif ($evacc =~ /^PF/) {
-		    $value = "PFAM:" . $evacc;
-		}
-	    } elsif ($ev_row->[4] eq "KO") {
-		$value = "KO:" . $evacc;
-	    } elsif ($ev_row->[4] eq "CAZy") {
-		$evacc =~ s/\.hmm$//; # sometimes .hmm is at the end of the CAZy family
-		$value = "CAZy:" . $evacc;
-	    } elsif ($ev_row->[4] eq "SEED") {
-		$value = "SEED:" . $evacc;
-	    }
-	    if ($value) {
-		$FeatObj->add_tag_value('db_xref', $value);
-	    }
-	}
+        # evidence - add families as db_xref tags
+        my $ev_ref = get_evidence_for_feature($dbh, $feat_id);
+        foreach my $ev_row(@$ev_ref) {
+            my $evacc = $ev_row->[5];
+            my $value;
+            if ($ev_row->[4] eq "HMM") {
+            if ($evacc =~ /^TIGR/) {
+                $value = "TIGRFAM:" . $evacc;
+            } elsif ($evacc =~ /^PF/) {
+                $value = "PFAM:" . $evacc;
+            }
+            } elsif ($ev_row->[4] eq "KO") {
+                $value = "KO:" . $evacc;
+            } elsif ($ev_row->[4] eq "CAZy") {
+                $evacc =~ s/\.hmm$//; # sometimes .hmm is at the end of the CAZy family
+                $value = "CAZy:" . $evacc;
+            } elsif ($ev_row->[4] eq "SEED") {
+                $value = "SEED:" . $evacc;
+            }
+            if ($value) {
+                $FeatObj->add_tag_value('db_xref', $value);
+            }
+        }
 
-	
-	# location
-	my $LocObj;
-	my $tcoords = $featr->{'location'}->{$seq_id}->{'translation_coords'};
-        #location if translation_coords
-	if($tcoords){
-	    my $locfact = Bio::Factory::FTLocationFactory->new();
-	    $LocObj = $locfact->from_string($tcoords);
-#	    $LocObj= Bio::LocationI->new(-start => $loc->start(),
-#					 -end => $loc->end(),
-#					 -strand => $featr->{'location'}->{$seq_id}->{'strand'});
-	} else{
-	    #location if no translation_coords
-	    my $start_fuzz = $featr->{'location'}->{$seq_id}->{'min_partial'} ? "BEFORE" : "EXACT";
-	    my $end_fuzz = $featr->{'location'}->{$seq_id}->{'max_partial'} ? "AFTER" : "EXACT";
-	    $LocObj=Bio::Location::Fuzzy->new(-start => $featr->{'location'}->{$seq_id}->{'feat_min'},
-					      -end => $featr->{'location'}->{$seq_id}->{'feat_max'},
-					      -strand => $featr->{'location'}->{$seq_id}->{'strand'},
-					      -start_fuzz => $start_fuzz,
-					      -end_fuzz => $end_fuzz);
-	}
-	$FeatObj->location($LocObj);
-	$FeatObj->frame($featr->{'location'}->{$seq_id}->{'phase'}) if ($featr->{'location'}->{$seq_id}->{'phase'} =~ /\d/);
-	
-	# accessions as locus_tags and old_locus_tags
-	for my $accType(keys %{$featr->{'accessions'}}) {
-	    my $acc_ary = $featr->{'accessions'}->{$accType};
-	    if ($accType eq "locus_tag") {
-		$FeatObj->add_tag_value('locus_tag', $acc_ary->[0]);
-	    } else {
-		foreach my $acc (@$acc_ary) {
-		    $FeatObj->add_tag_value('old_locus_tag', $acc);
-		}
-	    }
-	}
+        
+        # location
+        my $LocObj;
+        my $tcoords = $featr->{'location'}->{$seq_id}->{'translation_coords'};
+            #location if translation_coords
+        if($tcoords){
+            my $locfact = Bio::Factory::FTLocationFactory->new();
+            $LocObj = $locfact->from_string($tcoords);
+    #	    $LocObj= Bio::LocationI->new(-start => $loc->start(),
+    #					 -end => $loc->end(),
+    #					 -strand => $featr->{'location'}->{$seq_id}->{'strand'});
+        } else {
+            #location if no translation_coords
+            my $start_fuzz = $featr->{'location'}->{$seq_id}->{'min_partial'} ? "BEFORE" : "EXACT";
+            my $end_fuzz = $featr->{'location'}->{$seq_id}->{'max_partial'} ? "AFTER" : "EXACT";
+            $LocObj=Bio::Location::Fuzzy->new(-start => $featr->{'location'}->{$seq_id}->{'feat_min'},
+                            -end => $featr->{'location'}->{$seq_id}->{'feat_max'},
+                            -strand => $featr->{'location'}->{$seq_id}->{'strand'},
+                            -start_fuzz => $start_fuzz,
+                            -end_fuzz => $end_fuzz);
+        }
+        $FeatObj->location($LocObj);
+        $FeatObj->frame($featr->{'location'}->{$seq_id}->{'phase'}) if ($featr->{'location'}->{$seq_id}->{'phase'} =~ /\d/);
+        
+        # accessions as locus_tags and old_locus_tags
+        for my $accType(keys %{$featr->{'accessions'}}) {
+            my $acc_ary = $featr->{'accessions'}->{$accType};
+            if ($accType eq "locus_tag") {
+                $FeatObj->add_tag_value('locus_tag', $acc_ary->[0]);
+            } else {
+                foreach my $acc (@$acc_ary) {
+                    $FeatObj->add_tag_value('old_locus_tag', $acc);
+                }
+            }
+        }
 
-	if ($featr->{'feat_type'} eq 'CDS') {
-	    &add_Gene_feature($SeqObj, $featr, $LocObj);
-	}
-	
-	# Finally, add FeatObj to SeqObj
-	$SeqObj->add_SeqFeature($FeatObj);
+        if ($featr->{'feat_type'} eq 'CDS') {
+            &add_Gene_feature($SeqObj, $featr, $LocObj);
+        }
+        # Finally, add FeatObj to SeqObj
+        $SeqObj->add_SeqFeature($FeatObj);
     }
 }
 
@@ -1371,22 +1471,34 @@ sub add_Gene_feature {
     $FeatObj->primary_tag('gene');
 
     # location
-    my $loc;
-    if ($LocObj->isa('Bio::Location::SplitLocationI')) {
-	$loc = Bio::Location::Simple->new(-start=>$LocObj->start,
+    #my $loc;
+    #if ($LocObj->isa('Bio::Location::SplitLocationI')) {
+	my $loc = Bio::Location::Simple->new(-start=>$LocObj->start,
 					  -end=>$LocObj->end,
 					  -strand=>$LocObj->strand);
-    } else { $loc = $LocObj; }
+    #} else { $loc = $LocObj; }
     $FeatObj->location($loc);
 
     # annotations
-    foreach my $tag (keys %{$featr->{'annotation'}}) {
-	if (grep /^$tag$/, @quals) { 
-	    $FeatObj->add_tag_value($tag, @{$featr->{'annotation'}->{$tag}});
-	}
+    my @ranks = sort {$a<=>$b} keys %{$featr->{'annotation'}};
+    # to only pull annotation from best rank:
+    foreach my $source (keys %{$featr->{'annotation'}->{$ranks[0]}}) {
+        foreach my $tag (keys %{$featr->{'annotation'}->{$ranks[0]}->{$source}}) {
+            $FeatObj->add_tag_value($tag, @{$featr->{'annotation'}->{$ranks[0]}->{$source}->{$tag}});
+        }
     }
-    # accessions as locus_tag for now
-    $FeatObj->add_tag_value('locus_tag', $featr->{'accessions'}->{'locus_tag'}->[0]) if (defined $featr->{'accessions'}->{'Locus_tag'});
+
+    # accessions as locus_tags and old_locus_tags
+    for my $accType(keys %{$featr->{'accessions'}}) {
+        my $acc_ary = $featr->{'accessions'}->{$accType};
+        if ($accType eq "locus_tag") {
+            $FeatObj->add_tag_value('locus_tag', $acc_ary->[0]);
+        } else {
+            foreach my $acc (@$acc_ary) {
+                $FeatObj->add_tag_value('old_locus_tag', $acc);
+            }
+        }
+    }
     $SeqObj->add_SeqFeature($FeatObj);
 }
 

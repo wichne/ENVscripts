@@ -7,7 +7,7 @@ use Bio::Tools::GFF;
 use Bio::SeqFeature::Generic;
 use Bio::DB::Fasta;
 use Getopt::Std;
-use lib $ENV{SCRIPTS};
+use lib $ENV{ENVSCRIPTS};
 #use ProkGene;
 use ENV;
 
@@ -19,7 +19,7 @@ my ($dbh, $gff_file, $fasta_file, $source, $locus_prefix, $prefix) = &handle_opt
 #my $FT = get_feat_types($dbh);
 
 my $gffio = Bio::Tools::GFF->new(-file => $gff_file, -gff_version => 3);
-
+my %SEQ;
 FEATURE:while (my $feature = $gffio->next_feature()) {
     # Look to see if there is a sequence accession (seq_id).
     # If there is, see if it's in the database.
@@ -27,81 +27,90 @@ FEATURE:while (my $feature = $gffio->next_feature()) {
     # If not, skip insertion (with warning)
     my ($seqobj,$seq_id);
     my $seq_acc = $feature->seq_id;
-    if ($seq_acc) {
-	my @acc = split/\|/, $seq_acc;
-	#my @acc = split /\_/, $seq_acc;
-	foreach my $a (@acc) {
-	    $seqobj = get_sequence_by_accession($dbh, $a);
-	    last if $seqobj;
-	}
-	$seq_id = $seqobj->id;
-	if (! defined $seqobj) {
-	    print STDERR "Sequence '$seq_acc' is not in database. Skipping features associated with this accession\n";
-	    next FEATURE;
-	}
-    } else {
-	print STDERR "No sequence accession in row. Skipping...\n";
-	next FEATURE;
+	if ($SEQ{$seq_acc}) { $seq_id = $SEQ{$seq_acc} }
+	else {
+		my @acc = split/\|/, $seq_acc;
+		#my @acc = split /\_/, $seq_acc;
+		foreach my $a (@acc) {
+			if ($a =~ /_masked/) { 
+				warn "Removing '_masked' from accession for $a";
+				$a =~ s/_masked//;
+			}
+			$seqobj = get_sequence_by_accession($dbh, $a);
+			if (! $seqobj && $a =~/\.\d+$/) {
+				warn "Try removing version from accession";
+				$a =~ s/\.\d+$//;
+				$seqobj = get_sequence_by_accession($dbh, $a);
+			}
+			last if $seqobj;
+		}
+		if (! $seqobj) {
+			print STDERR "Sequence '$seq_acc' is not in database. Skipping features associated with this accession\n";
+			next FEATURE;
+		}
+		$seq_id = $seqobj->id;
+		$SEQ{$seq_acc} = $seq_id;
     }
 
     my $feat_type = $feature->primary_tag();
     if ($feat_type eq "source") {
-	next FEATURE;
+		next FEATURE;
     }
 
     # grab data from object
     my $data = {};
     my ($min, $max, $strand) = ($feature->start, $feature->end, $feature->strand);
     if ($strand == "" or ! defined $strand) {
-	($min, $max, $strand) = $min < $max ? ($min, $max, 1) : ($max, $min, -1);
+		($min, $max, $strand) = $min < $max ? ($min, $max, 1) : ($max, $min, -1);
     }
     my @tags = $feature->get_all_tags();
     my ($locus_tag, $max_partial, $min_partial);
     foreach my $tag (@tags) {
-	my @values = $feature->get_tag_values($tag);
-	if ($tag eq "locus_tag") { $locus_tag = $values[0] }
-	if ($tag eq "partial") {
-	    $min_partial = $values[0] & 10 ? 1 : 0;
-	    $max_partial = $values[0] & 01 ? 1 : 0;
-	}
-	if ($tag eq "ID" && !$locus_tag) {
-	    my ($val) = $feature->get_tag_values($tag);
-	    if ($val =~ /^(\d+)\_(\d+)$/) {
-		# This is a prodigal ID. Change it to desired format
-		my $featidx = $2;
-		my $scaf= $feature->seq_id; #grab seq_id which contains scaffold name
-		$locus_tag= sprintf "%s_%06d", ($scaf, $featidx);
-		$feature->set_attributes(-tag => {'locus_tag' => $locus_tag });
-	    } else {
-		$locus_tag = $val;
-		$feature->set_attributes(-tag => {'locus_tag' => $locus_tag });
-	    }
-	}
+		my @values = $feature->get_tag_values($tag);
+		if ($tag eq "locus_tag") { $locus_tag = $values[0] }
+		if ($tag eq "partial") {
+			$min_partial = $values[0] & 10 ? 1 : 0;
+			$max_partial = $values[0] & 01 ? 1 : 0;
+		}
+		if ($tag eq "ID" && !$locus_tag) {
+			my ($val) = $feature->get_tag_values($tag);
+			if ($val =~ /^(\d+)\_(\d+)$/) {
+			# This is a prodigal ID. Change it to desired format
+			my $featidx = $2;
+			my $scaf= $feature->seq_id; #grab seq_id which contains scaffold name
+			$locus_tag= sprintf "%s_%06d", ($scaf, $featidx);
+			$feature->set_attributes(-tag => {'locus_tag' => $locus_tag });
+			} else {
+			$locus_tag = $val;
+			$feature->set_attributes(-tag => {'locus_tag' => $locus_tag });
+			}
+		}
     }
+	if (! $locus_tag) { warn "Couldn't get locus_tag from $feature->display_id\n";}
 
     # look for existing feature
     # first by accession...
 	
-    my $acc_q = "SELECT feature_id from feature_accessions where accession = \"$locus_tag\"";
+    my $acc_q = "SELECT feature_id from feature_accessions where accession = \"$locus_tag\" AND source = \"$source\"";
     my $feat_r = $dbh->selectcol_arrayref($acc_q);
     if (@$feat_r) {
-	print "Accession $locus_tag is already in db. skipping...\n";
-	next;
+		print "Accession $locus_tag is already in db. skipping...\n";
+		next;
     }
 
     # ...then by coords
     else {
-	my $coords_q = "SELECT feature_id FROM seq_feat_mappings"
-	    . " WHERE seq_id = $seq_id"
-	    . " AND strand = \"$strand\""
-	    . " AND (feat_min = $min OR feat_max = $max)";
-	$feat_r = $dbh->selectcol_arrayref($coords_q);
+		my $coords_q = "SELECT feature_id FROM seq_feat_mappings"
+			. " WHERE seq_id = $seq_id"
+			. " AND strand = \"$strand\""
+			. " AND (feat_min = $min OR feat_max = $max)";
+		$feat_r = $dbh->selectcol_arrayref($coords_q);
 
-	if (!@$feat_r) {
-	    print "Couldn't find a feature using coords $min/$max. Skipping...\n";
-	} else {
-	    insert_feature_accessions($dbh, $feat_r->[0], $acc, $source, $prefix);
-	}
+		if (!@$feat_r) {
+			print "Couldn't find a feature using coords $min/$max. Skipping...\n";
+		} else {
+			insert_feature_accessions($dbh, $feat_r->[0], $locus_tag, $source, $prefix);
+		}
     }
 }
 

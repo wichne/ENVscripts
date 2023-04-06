@@ -9,10 +9,18 @@ my %arg;
 &getopts('D:u:p:', \%arg);
 my $db = $arg{'D'};
 my $dbh = &connect(\%arg);
+if ($arg{'n'}) {
+    $set_id = &set_name_to_id($dbh, $arg{'n'});
+} elsif ($arg{'i'}) {
+    $set_id = $arg{'i'};
+} else { die "Barf;\n"; }
 
-my $q = "SELECT feature_id, value, ann_rank, source"
-    . " FROM feature_annotations"
+my $q = "SELECT a.feature_id, a.value, a.ann_rank, a.source"
+    . " FROM feature_annotations a, seq_feat_mappings m, seq_set_link l"
     . " WHERE data_type_id=66"
+    . " AND l.set_id = $set_id"
+    . " AND m.seq_id=l.seq_id"
+    . " AND a.feature_id=m.feature_id"
     . " AND value REGEXP '\\(TC [0-9]+\.[A-Z](\.[0-9]+){3}\\)'"
 #    . " AND value REGEXP '[\\(\\\\[]EC[ :][0-9]+(\.[0-9\-]+){3}[\\)\\\\]]'"
 #    . " AND value REGEXP '[\\\\[]EC[ :][0-9]+(\.[0-9\-]+){3}[\\\\]]'"

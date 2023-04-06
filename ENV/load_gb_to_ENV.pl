@@ -116,7 +116,7 @@ while (my $seqrec = $in->next_seq) {
 	}
 	
 	# ...then by coords
-	if (! @$feat_r) {
+	if (! defined $feat_r || ! @$feat_r) {
 	    my $coords_q = "SELECT sfm.feature_id FROM seq_feat_mappings sfm, sequence_features f"
 		. " WHERE seq_id = $seq_id"
 		. " AND strand = \"$strand\""

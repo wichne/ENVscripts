@@ -10,7 +10,9 @@ my $DEBUG = 0;
 
 &getopts('D:u:p:P:i:n:z:s:htS:',\%arg);
 if ($arg{h}) { 
-    die "USAGE: locus_tag_assignment.pl -D db -p pswd -P locus_tag_prefix [ -i set_id OR -n set_name ] [ -u user -z zerofill_length -s seq_id -t -S source(default=locus_tag)]\n";
+    die "USAGE: locus_tag_assignment.pl -D db -p pswd -P locus_tag_prefix "
+		. " [ -i set_id OR -n set_name ] [ -u user -z zerofill_length -s seq_id"
+		. "  -t -S source(default=locus_tag)]\n";
 }
 
 my $prefix = $arg{'P'};

@@ -129,7 +129,7 @@ while (my $seqrec = $in->next_seq) {
 		    }
 		}
 		if ($locus_prefix) {
-		    $locus_tag = sprintf "${locus_prefix}_%05d", ++$index;
+		    my $locus_tag = sprintf "${locus_prefix}_%05d", ++$index;
 		    insert_feature_accessions($dbh, $fid, $locus_tag, "PNNL");
 		}
 	    }

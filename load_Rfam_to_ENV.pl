@@ -44,7 +44,7 @@ while (my $line = <$IN>) {
     my $strand = $dir eq "-" ? -1 : 1;
     my ($type, $name, $gene, $so_term) = &annotation_from_Rfam($dbh, $rfam_acc);
 
-    my @accs = split/\|/, $seq_acc;
+    my @accs = split(/\|/, $seq_acc);
     my ($seq_id, $seqobj, $sacc);
     foreach my $ax(@accs) {
 	if (!$SEQ{$ax}) {
